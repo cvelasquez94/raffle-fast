@@ -166,9 +166,28 @@ When adding new features:
 6. Add route to `src/App.tsx` if creating new pages
 7. Supabase types may need regeneration if schema changes
 
+## Deployment
+
+**Vercel Configuration**: See [DEPLOYMENT.md](DEPLOYMENT.md) for complete deployment guide.
+
+**Key files**:
+- `vercel.json` - Configures SPA routing (fixes 404 on direct route access)
+- `public/_redirects` - Alternative config for Netlify/other hosts
+
+**Environment Variables** (must be set in Vercel):
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
+- `VITE_SUPABASE_PROJECT_ID`
+
+**Common Issues**:
+- 404 on direct routes → Ensure `vercel.json` is deployed
+- Supabase errors → Verify environment variables in Vercel
+- Build failures → Run `npm run build` locally first
+
 ## Important Notes
 
 - Development server runs on port 8080 (not default 5173)
 - The `lovable-tagger` plugin is enabled in development mode for Lovable integration
 - All custom routes must be added ABOVE the catch-all `*` route in App.tsx
 - Supabase client file is auto-generated - do not manually edit the header comment
+- `.env` is gitignored - never commit sensitive credentials
