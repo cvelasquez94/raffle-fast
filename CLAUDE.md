@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a raffle management application built with React, TypeScript, Vite, and Supabase. The application allows users to create raffles, manage raffle numbers, track purchases, and administer raffle events. This project was initially created with Lovable (lovable.dev) and uses shadcn/ui for UI components.
+This is a raffle management application built with React, TypeScript, Vite, and Supabase. The application allows users to create raffles, manage raffle numbers, track purchases, and administer raffle events. This project uses shadcn/ui for UI components.
 
 ## Development Commands
 
@@ -187,7 +187,6 @@ When adding new features:
 ## Important Notes
 
 - Development server runs on port 8080 (not default 5173)
-- The `lovable-tagger` plugin is enabled in development mode for Lovable integration
 - All custom routes must be added ABOVE the catch-all `*` route in App.tsx
 - Supabase client file is auto-generated - do not manually edit the header comment
 - `.env` is gitignored - never commit sensitive credentials

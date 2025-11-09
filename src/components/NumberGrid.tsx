@@ -72,12 +72,21 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
 
       toast({
         title: "¡Número reservado!",
-        description: "El número ha sido reservado por 24 horas. Contacta al organizador para confirmar tu compra.",
+        description: "Serás redirigido a WhatsApp para confirmar tu compra.",
       });
 
       setDialogOpen(false);
       setReserveData({ name: "", email: "", phone: "" });
       onNumberUpdated();
+
+      // Esperar un momento para que se cierre el diálogo y luego abrir WhatsApp
+      setTimeout(() => {
+        const message = encodeURIComponent(
+          `Hola! Soy ${reserveData.name}. Me interesa el número ${selectedNumber.number} de la rifa "${raffle.title}". Ya lo reservé en el talonario.`
+        );
+        window.open(`https://wa.me/${raffle.whatsapp_number}?text=${message}`, "_blank");
+      }, 500);
+
     } catch (error: any) {
       console.error("Error al reservar:", error);
       toast({
