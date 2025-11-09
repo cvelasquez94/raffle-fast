@@ -44,6 +44,12 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
       const reservedUntil = new Date();
       reservedUntil.setHours(reservedUntil.getHours() + 24);
 
+      // Preparar URL de WhatsApp ANTES de la llamada async para evitar que Safari bloquee el popup
+      const message = encodeURIComponent(
+        `Hola! Soy ${reserveData.name}. Me interesa el número ${selectedNumber.number} de la rifa "${raffle.title}". Ya lo reservé en el talonario.`
+      );
+      const whatsappUrl = `https://wa.me/${raffle.whatsapp_number}?text=${message}`;
+
       // Verificar que el número aún esté disponible antes de reservar
       const { data: currentNumber } = await supabase
         .from("raffle_numbers")
@@ -75,17 +81,12 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
         description: "Serás redirigido a WhatsApp para confirmar tu compra.",
       });
 
+      // Abrir WhatsApp inmediatamente (sin setTimeout para evitar bloqueo en Safari iOS)
+      window.location.href = whatsappUrl;
+
       setDialogOpen(false);
       setReserveData({ name: "", email: "", phone: "" });
       onNumberUpdated();
-
-      // Esperar un momento para que se cierre el diálogo y luego abrir WhatsApp
-      setTimeout(() => {
-        const message = encodeURIComponent(
-          `Hola! Soy ${reserveData.name}. Me interesa el número ${selectedNumber.number} de la rifa "${raffle.title}". Ya lo reservé en el talonario.`
-        );
-        window.open(`https://wa.me/${raffle.whatsapp_number}?text=${message}`, "_blank");
-      }, 500);
 
     } catch (error: any) {
       console.error("Error al reservar:", error);
