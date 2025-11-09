@@ -2,12 +2,16 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Navbar } from "@/components/Navbar";
 import { NumberGrid } from "@/components/NumberGrid";
 import { RaffleAdmin } from "@/components/RaffleAdmin";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Share2, ArrowLeft } from "lucide-react";
+import { Loader2, Share2, ArrowLeft, Pencil } from "lucide-react";
 
 const RaffleView = () => {
   const { id } = useParams();
@@ -18,6 +22,13 @@ const RaffleView = () => {
   const [numbers, setNumbers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isOwner, setIsOwner] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editData, setEditData] = useState({
+    title: "",
+    description: "",
+    price_per_number: "",
+    whatsapp_number: "",
+  });
 
   useEffect(() => {
     loadData();
@@ -83,6 +94,46 @@ const RaffleView = () => {
     });
   };
 
+  const handleOpenEdit = () => {
+    setEditData({
+      title: raffle.title,
+      description: raffle.description,
+      price_per_number: raffle.price_per_number.toString(),
+      whatsapp_number: raffle.whatsapp_number,
+    });
+    setEditDialogOpen(true);
+  };
+
+  const handleSaveEdit = async () => {
+    try {
+      const { error } = await supabase
+        .from("raffles")
+        .update({
+          title: editData.title,
+          description: editData.description,
+          price_per_number: parseFloat(editData.price_per_number),
+          whatsapp_number: editData.whatsapp_number,
+        })
+        .eq("id", id);
+
+      if (error) throw error;
+
+      toast({
+        title: "¡Actualizado!",
+        description: "Los detalles del talonario han sido actualizados",
+      });
+
+      setEditDialogOpen(false);
+      loadData();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "No se pudo actualizar el talonario",
+        variant: "destructive",
+      });
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -123,11 +174,19 @@ const RaffleView = () => {
                   </span>
                 </div>
               </div>
-              
-              <Button onClick={handleShare} className="gap-2">
-                <Share2 className="w-4 h-4" />
-                Compartir
-              </Button>
+
+              <div className="flex gap-2">
+                {isOwner && (
+                  <Button onClick={handleOpenEdit} variant="outline" className="gap-2">
+                    <Pencil className="w-4 h-4" />
+                    Editar
+                  </Button>
+                )}
+                <Button onClick={handleShare} className="gap-2">
+                  <Share2 className="w-4 h-4" />
+                  Compartir
+                </Button>
+              </div>
             </div>
 
             {/* Stats */}
@@ -179,6 +238,73 @@ const RaffleView = () => {
           )}
         </div>
       </div>
+
+      {/* Edit Dialog */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Editar Talonario</DialogTitle>
+            <DialogDescription>
+              Modifica los detalles de tu talonario
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-title">Título de la Rifa *</Label>
+              <Input
+                id="edit-title"
+                value={editData.title}
+                onChange={(e) => setEditData({ ...editData, title: e.target.value })}
+                placeholder="Ej: Rifa de iPhone 15 Pro"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-description">Descripción *</Label>
+              <Textarea
+                id="edit-description"
+                value={editData.description}
+                onChange={(e) => setEditData({ ...editData, description: e.target.value })}
+                placeholder="Describe el premio, fecha del sorteo, etc."
+                rows={4}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-price">Precio por Número (ARS) *</Label>
+              <Input
+                id="edit-price"
+                type="number"
+                step="0.01"
+                min="0.01"
+                value={editData.price_per_number}
+                onChange={(e) => setEditData({ ...editData, price_per_number: e.target.value })}
+                placeholder="1000.00"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-whatsapp">WhatsApp (con código de país) *</Label>
+              <Input
+                id="edit-whatsapp"
+                type="tel"
+                value={editData.whatsapp_number}
+                onChange={(e) => setEditData({ ...editData, whatsapp_number: e.target.value })}
+                placeholder="+5491112345678"
+              />
+            </div>
+
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button onClick={handleSaveEdit}>
+                Guardar Cambios
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
