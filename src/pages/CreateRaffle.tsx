@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Navbar } from "@/components/Navbar";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -20,6 +21,7 @@ const CreateRaffle = () => {
     description: "",
     pricePerNumber: "",
     whatsappNumber: "",
+    totalNumbers: "50", // Default value
   });
 
   useEffect(() => {
@@ -58,6 +60,7 @@ const CreateRaffle = () => {
           description: formData.description,
           price_per_number: parseFloat(formData.pricePerNumber),
           whatsapp_number: formData.whatsappNumber,
+          total_numbers: parseInt(formData.totalNumbers),
         })
         .select()
         .single();
@@ -99,7 +102,7 @@ const CreateRaffle = () => {
           <CardHeader>
             <CardTitle className="text-2xl">Crear Nuevo Talonario</CardTitle>
             <CardDescription>
-              Completa los datos de tu rifa. El talonario tendrá 50 números automáticamente.
+              Completa los datos de tu rifa. Podrás elegir entre 10, 30 o 50 números.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -125,6 +128,26 @@ const CreateRaffle = () => {
                   required
                   rows={4}
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="totalNumbers">Cantidad de Números *</Label>
+                <Select
+                  value={formData.totalNumbers}
+                  onValueChange={(value) => setFormData({ ...formData, totalNumbers: value })}
+                >
+                  <SelectTrigger id="totalNumbers">
+                    <SelectValue placeholder="Selecciona la cantidad de números" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="10">10 números</SelectItem>
+                    <SelectItem value="30">30 números</SelectItem>
+                    <SelectItem value="50">50 números</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Define cuántos números tendrá tu talonario de rifa
+                </p>
               </div>
 
               <div className="space-y-2">
