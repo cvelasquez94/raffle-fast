@@ -119,7 +119,7 @@ const RaffleView = () => {
       console.log("Pago aprobado encontrado:", approvedPayment);
 
       if (approvedPayment) {
-        // Marcar los números como vendidos
+        // Marcar los números como "paid" (pagados, esperando confirmación del owner)
         const numberIds = pendingPayment.numberId
           ? [pendingPayment.numberId]
           : pendingPayment.numberIds;
@@ -129,8 +129,7 @@ const RaffleView = () => {
             supabase
               .from("raffle_numbers")
               .update({
-                status: "sold",
-                sold_at: new Date().toISOString(),
+                status: "paid",
                 payment_status: "approved",
                 reserved_at: null,
                 reserved_until: null,
@@ -147,7 +146,7 @@ const RaffleView = () => {
 
         toast({
           title: "¡Pago confirmado!",
-          description: "Tu pago fue procesado exitosamente. Los números han sido marcados como vendidos.",
+          description: "Tu pago fue procesado exitosamente. El vendedor confirmará la venta cuando reciba el dinero.",
         });
 
         localStorage.removeItem('pending_payment');
@@ -387,7 +386,7 @@ const RaffleView = () => {
             </div>
 
             {/* Stats */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-4 gap-4">
               <StatCard
                 label="Disponibles"
                 value={numbers.filter(n => n.status === "available").length}
@@ -397,6 +396,11 @@ const RaffleView = () => {
                 label="Reservados"
                 value={numbers.filter(n => n.status === "reserved").length}
                 color="warning"
+              />
+              <StatCard
+                label="Pagados"
+                value={numbers.filter(n => n.status === "paid").length}
+                color="blue-500"
               />
               <StatCard
                 label="Vendidos"

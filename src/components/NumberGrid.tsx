@@ -35,6 +35,7 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
     // Si el raffle está completado y no es el dueño, no permitir interacción
     if (raffle.status === "completed" && !isOwner) return;
     if (number.status === "sold" && !isOwner) return;
+    if (number.status === "paid" && !isOwner) return;
 
     // Si está en modo de selección múltiple
     if (multiSelectMode && !isOwner && number.status === "available") {
@@ -501,6 +502,10 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
         return "bg-success/10 hover:bg-success/20 text-success border-success/20 cursor-pointer";
       case "reserved":
         return "bg-warning/10 hover:bg-warning/20 text-warning border-warning/20 cursor-pointer";
+      case "paid":
+        return isOwner
+          ? "bg-blue-100 hover:bg-blue-200 text-blue-700 border-blue-300 cursor-pointer ring-2 ring-blue-400"
+          : "bg-blue-50 text-blue-600 border-blue-200 cursor-not-allowed";
       case "sold":
         return isOwner
           ? "bg-muted hover:bg-muted/80 text-muted-foreground border-muted cursor-pointer"
@@ -568,6 +573,7 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
             <DialogDescription>
               {selectedNumber?.status === "available" && "Este número está disponible"}
               {selectedNumber?.status === "reserved" && "Este número está reservado"}
+              {selectedNumber?.status === "paid" && "Este número fue pagado y espera confirmación"}
               {selectedNumber?.status === "sold" && "Este número ya fue vendido"}
             </DialogDescription>
           </DialogHeader>
@@ -684,6 +690,50 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
               </div>
             )}
 
+            {/* Números pagados - Esperando confirmación del owner */}
+            {selectedNumber?.status === "paid" && (
+              <div className="space-y-4">
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-2">
+                  <div className="flex items-center gap-2">
+                    <CreditCard className="w-5 h-5 text-blue-600" />
+                    <p className="font-semibold text-blue-900">Pago Verificado</p>
+                  </div>
+                  <p className="text-sm text-blue-700">
+                    Este número fue pagado con Mercado Pago.
+                  </p>
+                  <div className="text-sm space-y-1 text-blue-800">
+                    <p><strong>Comprador:</strong> {selectedNumber.buyer_name}</p>
+                    {selectedNumber.buyer_email && <p><strong>Email:</strong> {selectedNumber.buyer_email}</p>}
+                    {selectedNumber.buyer_phone && <p><strong>Teléfono:</strong> {selectedNumber.buyer_phone}</p>}
+                  </div>
+                </div>
+
+                {!isOwner && (
+                  <div className="text-sm text-muted-foreground text-center">
+                    El vendedor confirmará la venta cuando reciba el dinero
+                  </div>
+                )}
+
+                {isOwner && (
+                  <div className="space-y-3">
+                    <p className="text-sm font-medium text-center">
+                      Verifica que recibiste el dinero en tu cuenta de Mercado Pago
+                    </p>
+                    <div className="flex gap-2">
+                      <Button onClick={handleConfirmSale} className="flex-1 gap-2 bg-green-600 hover:bg-green-700">
+                        <Check className="w-4 h-4" />
+                        Confirmar Venta
+                      </Button>
+                      <Button onClick={handleCancelReservation} variant="outline" className="flex-1 gap-2">
+                        <X className="w-4 h-4" />
+                        Rechazar (devolver a disponible)
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {isOwner && (selectedNumber?.status === "available" || selectedNumber?.status === "sold") && (
               <>
                 <div className="space-y-4 p-4 bg-muted/50 rounded-lg">
@@ -698,6 +748,7 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
                       <SelectContent>
                         <SelectItem value="available">Disponible</SelectItem>
                         <SelectItem value="reserved">Reservado</SelectItem>
+                        <SelectItem value="paid">Pagado (verificado)</SelectItem>
                         <SelectItem value="sold">Vendido</SelectItem>
                       </SelectContent>
                     </Select>
