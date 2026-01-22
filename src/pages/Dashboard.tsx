@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Navbar } from "@/components/Navbar";
 import { RaffleCard } from "@/components/RaffleCard";
+import { MercadoPagoConnect } from "@/components/MercadoPagoConnect";
 import { supabase } from "@/integrations/supabase/client";
 import { Plus, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -16,7 +17,20 @@ const Dashboard = () => {
 
   useEffect(() => {
     initializeDashboard();
+    checkMPConnection();
   }, []);
+
+  const checkMPConnection = () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('mp_connected') === 'true') {
+      toast({
+        title: "¡Cuenta conectada!",
+        description: "Tu cuenta de Mercado Pago se conectó exitosamente.",
+      });
+      // Clean URL
+      window.history.replaceState({}, '', '/dashboard');
+    }
+  };
 
   const initializeDashboard = async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -63,7 +77,7 @@ const Dashboard = () => {
               Gestiona tus rifas y sorteos
             </p>
           </div>
-          
+
           <Button
             onClick={() => navigate("/create-raffle")}
             disabled={!canCreateRaffle}
@@ -73,6 +87,13 @@ const Dashboard = () => {
             Crear Talonario
           </Button>
         </div>
+
+        {/* Mercado Pago Connection */}
+        {user && (
+          <div className="mb-8">
+            <MercadoPagoConnect userId={user.id} />
+          </div>
+        )}
 
         {!canCreateRaffle && (
           <div className="mb-6 p-4 bg-warning/10 border border-warning/20 rounded-lg">
