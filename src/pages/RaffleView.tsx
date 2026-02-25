@@ -8,7 +8,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Navbar } from "@/components/Navbar";
 import { NumberGrid } from "@/components/NumberGrid";
 import { RaffleAdmin } from "@/components/RaffleAdmin";
@@ -33,8 +32,6 @@ const RaffleView = () => {
     description: "",
     price_per_number: "",
     whatsapp_number: "",
-    mercadopago_access_token: "",
-    mercadopago_enabled: false,
   });
 
   useEffect(() => {
@@ -90,21 +87,23 @@ const RaffleView = () => {
       // Esperar a que el raffle se cargue
       await new Promise(resolve => setTimeout(resolve, 1000));
 
-      // Obtener el access token del raffle
+      // Obtener el access token del perfil del dueño del raffle
       const { data: raffleData } = await supabase
         .from("raffles")
-        .select("mercadopago_access_token")
+        .select("user_id, profiles!inner(mp_access_token)")
         .eq("id", id)
         .single();
 
-      if (!raffleData?.mercadopago_access_token) {
+      const accessToken = raffleData?.profiles?.mp_access_token;
+
+      if (!accessToken) {
         localStorage.removeItem('pending_payment');
         return;
       }
 
       // Buscar pagos asociados a esta preferencia
       const paymentsData = await searchPaymentsByPreference(
-        raffleData.mercadopago_access_token,
+        accessToken,
         pendingPayment.preferenceId
       );
 
@@ -179,12 +178,19 @@ const RaffleView = () => {
 
       const { data: raffleData, error: raffleError } = await supabase
         .from("raffles")
-        .select("*, profiles(full_name)")
+        .select("*, profiles(full_name, mp_access_token)")
         .eq("id", id)
         .single();
 
       if (raffleError) throw raffleError;
-      setRaffle(raffleData);
+
+      // Add the OAuth access token to the raffle object for use in NumberGrid
+      const raffleWithToken = {
+        ...raffleData,
+        mercadopago_access_token: raffleData.profiles?.mp_access_token || null,
+      };
+
+      setRaffle(raffleWithToken);
       setIsOwner(session?.user?.id === raffleData.user_id);
 
       const { data: numbersData, error: numbersError } = await supabase
@@ -238,8 +244,6 @@ const RaffleView = () => {
       description: raffle.description,
       price_per_number: raffle.price_per_number.toString(),
       whatsapp_number: raffle.whatsapp_number,
-      mercadopago_access_token: raffle.mercadopago_access_token || "",
-      mercadopago_enabled: raffle.mercadopago_enabled || false,
     });
     setEditDialogOpen(true);
   };
@@ -253,8 +257,6 @@ const RaffleView = () => {
           description: editData.description,
           price_per_number: parseFloat(editData.price_per_number),
           whatsapp_number: editData.whatsapp_number,
-          mercadopago_access_token: editData.mercadopago_access_token || null,
-          mercadopago_enabled: editData.mercadopago_enabled,
         })
         .eq("id", id);
 
@@ -499,46 +501,17 @@ const RaffleView = () => {
               <div className="space-y-2">
                 <h3 className="font-semibold text-sm">Pagos con Mercado Pago</h3>
                 <p className="text-xs text-muted-foreground">
-                  Permite que los compradores paguen directamente con Mercado Pago
+                  Los pagos con Mercado Pago se configuran desde tu Dashboard conectando tu cuenta.
                 </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate("/dashboard")}
+                  className="mt-2"
+                >
+                  Ir a configuración de pagos
+                </Button>
               </div>
-
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="mercadopago-enabled"
-                  checked={editData.mercadopago_enabled}
-                  onCheckedChange={(checked) =>
-                    setEditData({ ...editData, mercadopago_enabled: checked as boolean })
-                  }
-                />
-                <Label htmlFor="mercadopago-enabled" className="cursor-pointer">
-                  Habilitar pagos con Mercado Pago
-                </Label>
-              </div>
-
-              {editData.mercadopago_enabled && (
-                <div className="space-y-2">
-                  <Label htmlFor="edit-mp-token">Access Token de Mercado Pago *</Label>
-                  <Input
-                    id="edit-mp-token"
-                    type="password"
-                    value={editData.mercadopago_access_token}
-                    onChange={(e) => setEditData({ ...editData, mercadopago_access_token: e.target.value })}
-                    placeholder="APP_USR-..."
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Obtén tu Access Token en{" "}
-                    <a
-                      href="https://www.mercadopago.com.ar/developers/panel"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-primary underline"
-                    >
-                      Mercado Pago Developers
-                    </a>
-                  </p>
-                </div>
-              )}
             </div>
 
             <div className="flex gap-2 justify-end">

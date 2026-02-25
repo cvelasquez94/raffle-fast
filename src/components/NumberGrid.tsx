@@ -626,7 +626,7 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
                   </div>
                 </div>
 
-                {raffle.mercadopago_enabled && raffle.mercadopago_access_token ? (
+                {raffle.mercadopago_access_token ? (
                   <div className="space-y-3">
                     <div className="flex gap-2">
                       <Button
@@ -853,7 +853,7 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
               />
             </div>
 
-            {raffle.mercadopago_enabled && raffle.mercadopago_access_token ? (
+            {raffle.mercadopago_access_token ? (
               <div className="space-y-3 pt-4">
                 <Button
                   onClick={handleBulkPayWithMercadoPago}
