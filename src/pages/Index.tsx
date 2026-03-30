@@ -34,7 +34,7 @@ const Index = () => {
               Crea y Gestiona tus Rifas Online
             </h1>
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-              La1212312 forma más fácil de organizar sorteos y rifas. Comparte tu talonario, 
+              La forma más fácil de organizar sorteos y rifas. Comparte tu talonario, 
               gestiona ventas y reservas todo en un solo lugar.
             </p>
             <div className="flex gap-4 justify-center flex-wrap">
