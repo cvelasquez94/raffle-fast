@@ -10,6 +10,9 @@ import { useToast } from "@/hooks/use-toast";
 import { MessageCircle, Check, X, CheckSquare, Square, CreditCard } from "lucide-react";
 import { createMercadoPagoPaymentLink } from "@/lib/mercadopago";
 
+const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+const isValidPhone = (phone: string) => /^\+?[\d\s\-().]{7,20}$/.test(phone);
+
 interface NumberGridProps {
   numbers: any[];
   raffle: any;
@@ -30,6 +33,9 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
     phone: "",
   });
   const [editStatus, setEditStatus] = useState("");
+  const [reserveErrors, setReserveErrors] = useState<Record<string, string>>({});
+  const [bulkErrors, setBulkErrors] = useState<Record<string, string>>({});
+  const [ownerErrors, setOwnerErrors] = useState<Record<string, string>>({});
 
   const handleNumberClick = (number: any) => {
     // Si el raffle está completado y no es el dueño, no permitir interacción
@@ -57,6 +63,8 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
       phone: number.buyer_phone || "",
     });
     setEditStatus(number.status);
+    setReserveErrors({});
+    setOwnerErrors({});
     setDialogOpen(true);
   };
 
@@ -74,10 +82,39 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
       });
       return;
     }
+    setReserveData({ name: "", email: "", phone: "" });
+    setBulkErrors({});
     setBulkDialogOpen(true);
   };
 
+  const validateReserveData = (
+    data: { name: string; email: string; phone: string },
+    requireName: boolean
+  ): Record<string, string> => {
+    const errors: Record<string, string> = {};
+
+    if (requireName && data.name.trim().length < 2) {
+      errors.name = "El nombre debe tener al menos 2 caracteres";
+    }
+
+    if (data.email && !isValidEmail(data.email)) {
+      errors.email = "Por favor ingresá un email válido";
+    }
+
+    if (data.phone && !isValidPhone(data.phone)) {
+      errors.phone = "Por favor ingresá un teléfono válido";
+    }
+
+    return errors;
+  };
+
   const handleConfirmBulkReserve = async () => {
+    const errors = validateReserveData(reserveData, true);
+    if (Object.keys(errors).length > 0) {
+      setBulkErrors(errors);
+      return;
+    }
+
     try {
       const reservedUntil = new Date();
       reservedUntil.setHours(reservedUntil.getHours() + 24);
@@ -141,6 +178,12 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
   };
 
   const handleBulkPayWithMercadoPago = async () => {
+    const errors = validateReserveData(reserveData, true);
+    if (Object.keys(errors).length > 0) {
+      setBulkErrors(errors);
+      return;
+    }
+
     try {
       if (!raffle.mercadopago_access_token) {
         throw new Error("Mercado Pago no está configurado para este talonario");
@@ -192,10 +235,10 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
       );
 
       const results = await Promise.all(updatePromises);
-      const errors = results.filter(r => r.error);
+      const errs = results.filter(r => r.error);
 
-      if (errors.length > 0) {
-        throw new Error(`No se pudieron reservar ${errors.length} números`);
+      if (errs.length > 0) {
+        throw new Error(`No se pudieron reservar ${errs.length} números`);
       }
 
       toast({
@@ -231,6 +274,12 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
   };
 
   const handleReserve = async () => {
+    const errors = validateReserveData(reserveData, true);
+    if (Object.keys(errors).length > 0) {
+      setReserveErrors(errors);
+      return;
+    }
+
     try {
       const reservedUntil = new Date();
       reservedUntil.setHours(reservedUntil.getHours() + 24);
@@ -290,6 +339,12 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
   };
 
   const handlePayWithMercadoPago = async () => {
+    const errors = validateReserveData(reserveData, true);
+    if (Object.keys(errors).length > 0) {
+      setReserveErrors(errors);
+      return;
+    }
+
     try {
       if (!raffle.mercadopago_access_token) {
         throw new Error("Mercado Pago no está configurado para este talonario");
@@ -441,6 +496,13 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
   };
 
   const handleOwnerUpdate = async () => {
+    const requireName = editStatus === "reserved" || editStatus === "sold";
+    const errors = validateReserveData(reserveData, requireName);
+    if (Object.keys(errors).length > 0) {
+      setOwnerErrors(errors);
+      return;
+    }
+
     try {
       const updateData: any = {
         status: editStatus,
@@ -515,6 +577,12 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
     }
   };
 
+  const isSingleReserveNameInvalid =
+    !reserveData.name.trim() || reserveData.name.trim().length < 2;
+
+  const isBulkReserveNameInvalid =
+    !reserveData.name.trim() || reserveData.name.trim().length < 2;
+
   return (
     <>
       {raffle.status === "completed" && !isOwner && (
@@ -566,7 +634,13 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
         })}
       </div>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog open={dialogOpen} onOpenChange={(open) => {
+        setDialogOpen(open);
+        if (!open) {
+          setReserveErrors({});
+          setOwnerErrors({});
+        }
+      }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Número {selectedNumber?.number}</DialogTitle>
@@ -600,9 +674,15 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
                     <Input
                       id="name"
                       value={reserveData.name}
-                      onChange={(e) => setReserveData({ ...reserveData, name: e.target.value })}
+                      onChange={(e) => {
+                        setReserveData({ ...reserveData, name: e.target.value });
+                        setReserveErrors({ ...reserveErrors, name: "" });
+                      }}
                       placeholder="Juan Pérez"
                     />
+                    {reserveErrors.name && (
+                      <p className="text-sm text-destructive mt-1">{reserveErrors.name}</p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="email">Email</Label>
@@ -610,9 +690,15 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
                       id="email"
                       type="email"
                       value={reserveData.email}
-                      onChange={(e) => setReserveData({ ...reserveData, email: e.target.value })}
+                      onChange={(e) => {
+                        setReserveData({ ...reserveData, email: e.target.value });
+                        setReserveErrors({ ...reserveErrors, email: "" });
+                      }}
                       placeholder="tu@email.com"
                     />
+                    {reserveErrors.email && (
+                      <p className="text-sm text-destructive mt-1">{reserveErrors.email}</p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="phone">Teléfono</Label>
@@ -620,9 +706,15 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
                       id="phone"
                       type="tel"
                       value={reserveData.phone}
-                      onChange={(e) => setReserveData({ ...reserveData, phone: e.target.value })}
+                      onChange={(e) => {
+                        setReserveData({ ...reserveData, phone: e.target.value });
+                        setReserveErrors({ ...reserveErrors, phone: "" });
+                      }}
                       placeholder="+54 9 11 1234-5678"
                     />
+                    {reserveErrors.phone && (
+                      <p className="text-sm text-destructive mt-1">{reserveErrors.phone}</p>
+                    )}
                   </div>
                 </div>
 
@@ -631,7 +723,7 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
                     <div className="flex gap-2">
                       <Button
                         onClick={handlePayWithMercadoPago}
-                        disabled={!reserveData.name}
+                        disabled={isSingleReserveNameInvalid}
                         className="flex-1 gap-2"
                       >
                         <CreditCard className="w-4 h-4" />
@@ -647,7 +739,7 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
                       </div>
                     </div>
                     <div className="flex gap-2">
-                      <Button onClick={handleReserve} disabled={!reserveData.name} variant="outline" className="flex-1">
+                      <Button onClick={handleReserve} disabled={isSingleReserveNameInvalid} variant="outline" className="flex-1">
                         Reservar 24hs
                       </Button>
                       <Button onClick={handleWhatsApp} variant="outline" className="flex-1 gap-2">
@@ -658,7 +750,7 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
                   </div>
                 ) : (
                   <div className="flex gap-2">
-                    <Button onClick={handleReserve} disabled={!reserveData.name} className="flex-1">
+                    <Button onClick={handleReserve} disabled={isSingleReserveNameInvalid} className="flex-1">
                       Reservar 24hs
                     </Button>
                     <Button onClick={handleWhatsApp} variant="outline" className="flex-1 gap-2">
@@ -741,7 +833,10 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
 
                   <div className="space-y-2">
                     <Label htmlFor="status">Estado *</Label>
-                    <Select value={editStatus} onValueChange={setEditStatus}>
+                    <Select value={editStatus} onValueChange={(val) => {
+                      setEditStatus(val);
+                      setOwnerErrors({ ...ownerErrors, name: "" });
+                    }}>
                       <SelectTrigger id="status">
                         <SelectValue placeholder="Selecciona estado" />
                       </SelectTrigger>
@@ -759,9 +854,15 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
                     <Input
                       id="owner-name"
                       value={reserveData.name}
-                      onChange={(e) => setReserveData({ ...reserveData, name: e.target.value })}
+                      onChange={(e) => {
+                        setReserveData({ ...reserveData, name: e.target.value });
+                        setOwnerErrors({ ...ownerErrors, name: "" });
+                      }}
                       placeholder="Juan Pérez"
                     />
+                    {ownerErrors.name && (
+                      <p className="text-sm text-destructive mt-1">{ownerErrors.name}</p>
+                    )}
                   </div>
 
                   <div className="space-y-2">
@@ -770,9 +871,15 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
                       id="owner-email"
                       type="email"
                       value={reserveData.email}
-                      onChange={(e) => setReserveData({ ...reserveData, email: e.target.value })}
+                      onChange={(e) => {
+                        setReserveData({ ...reserveData, email: e.target.value });
+                        setOwnerErrors({ ...ownerErrors, email: "" });
+                      }}
                       placeholder="email@ejemplo.com"
                     />
+                    {ownerErrors.email && (
+                      <p className="text-sm text-destructive mt-1">{ownerErrors.email}</p>
+                    )}
                   </div>
 
                   <div className="space-y-2">
@@ -781,9 +888,15 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
                       id="owner-phone"
                       type="tel"
                       value={reserveData.phone}
-                      onChange={(e) => setReserveData({ ...reserveData, phone: e.target.value })}
+                      onChange={(e) => {
+                        setReserveData({ ...reserveData, phone: e.target.value });
+                        setOwnerErrors({ ...ownerErrors, phone: "" });
+                      }}
                       placeholder="+54 9 11 1234-5678"
                     />
+                    {ownerErrors.phone && (
+                      <p className="text-sm text-destructive mt-1">{ownerErrors.phone}</p>
+                    )}
                   </div>
                 </div>
 
@@ -797,7 +910,12 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
       </Dialog>
 
       {/* Bulk Reservation Dialog */}
-      <Dialog open={bulkDialogOpen} onOpenChange={setBulkDialogOpen}>
+      <Dialog open={bulkDialogOpen} onOpenChange={(open) => {
+        setBulkDialogOpen(open);
+        if (!open) {
+          setBulkErrors({});
+        }
+      }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Reservar {selectedNumbers.length} números</DialogTitle>
@@ -826,9 +944,15 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
               <Input
                 id="bulk-name"
                 value={reserveData.name}
-                onChange={(e) => setReserveData({ ...reserveData, name: e.target.value })}
+                onChange={(e) => {
+                  setReserveData({ ...reserveData, name: e.target.value });
+                  setBulkErrors({ ...bulkErrors, name: "" });
+                }}
                 placeholder="Juan Pérez"
               />
+              {bulkErrors.name && (
+                <p className="text-sm text-destructive mt-1">{bulkErrors.name}</p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -837,9 +961,15 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
                 id="bulk-email"
                 type="email"
                 value={reserveData.email}
-                onChange={(e) => setReserveData({ ...reserveData, email: e.target.value })}
+                onChange={(e) => {
+                  setReserveData({ ...reserveData, email: e.target.value });
+                  setBulkErrors({ ...bulkErrors, email: "" });
+                }}
                 placeholder="tu@email.com"
               />
+              {bulkErrors.email && (
+                <p className="text-sm text-destructive mt-1">{bulkErrors.email}</p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -848,16 +978,22 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
                 id="bulk-phone"
                 type="tel"
                 value={reserveData.phone}
-                onChange={(e) => setReserveData({ ...reserveData, phone: e.target.value })}
+                onChange={(e) => {
+                  setReserveData({ ...reserveData, phone: e.target.value });
+                  setBulkErrors({ ...bulkErrors, phone: "" });
+                }}
                 placeholder="+54 9 11 1234-5678"
               />
+              {bulkErrors.phone && (
+                <p className="text-sm text-destructive mt-1">{bulkErrors.phone}</p>
+              )}
             </div>
 
             {raffle.mercadopago_access_token ? (
               <div className="space-y-3 pt-4">
                 <Button
                   onClick={handleBulkPayWithMercadoPago}
-                  disabled={!reserveData.name}
+                  disabled={isBulkReserveNameInvalid}
                   className="w-full gap-2"
                 >
                   <CreditCard className="w-4 h-4" />
@@ -872,7 +1008,7 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <Button onClick={handleConfirmBulkReserve} disabled={!reserveData.name} variant="outline" className="flex-1">
+                  <Button onClick={handleConfirmBulkReserve} disabled={isBulkReserveNameInvalid} variant="outline" className="flex-1">
                     Reservar y contactar
                   </Button>
                   <Button onClick={() => setBulkDialogOpen(false)} variant="outline">
@@ -882,7 +1018,7 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
               </div>
             ) : (
               <div className="flex gap-2 pt-4">
-                <Button onClick={handleConfirmBulkReserve} disabled={!reserveData.name} className="flex-1">
+                <Button onClick={handleConfirmBulkReserve} disabled={isBulkReserveNameInvalid} className="flex-1">
                   Reservar y contactar
                 </Button>
                 <Button onClick={() => setBulkDialogOpen(false)} variant="outline">

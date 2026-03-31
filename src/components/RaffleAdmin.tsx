@@ -10,6 +10,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Edit, Search, X } from "lucide-react";
 
+const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+const isValidPhone = (phone: string) => /^\+?[\d\s\-().]{7,20}$/.test(phone);
+
 interface RaffleAdminProps {
   numbers: any[];
   onNumberUpdated: () => void;
@@ -27,6 +30,7 @@ export const RaffleAdmin = ({ numbers, onNumberUpdated }: RaffleAdminProps) => {
     buyer_email: "",
     buyer_phone: "",
   });
+  const [adminErrors, setAdminErrors] = useState<Record<string, string>>({});
 
   const handleEditClick = (number: any) => {
     setSelectedNumber(number);
@@ -36,10 +40,35 @@ export const RaffleAdmin = ({ numbers, onNumberUpdated }: RaffleAdminProps) => {
       buyer_email: number.buyer_email || "",
       buyer_phone: number.buyer_phone || "",
     });
+    setAdminErrors({});
     setDialogOpen(true);
   };
 
+  const validateAdminForm = (): boolean => {
+    const errors: Record<string, string> = {};
+    const requiresBuyer = editData.status === "reserved" || editData.status === "sold";
+
+    if (requiresBuyer && editData.buyer_name.trim().length < 2) {
+      errors.buyer_name = "El nombre del comprador debe tener al menos 2 caracteres";
+    }
+
+    if (editData.buyer_email && !isValidEmail(editData.buyer_email)) {
+      errors.buyer_email = "Por favor ingresá un email válido";
+    }
+
+    if (editData.buyer_phone && !isValidPhone(editData.buyer_phone)) {
+      errors.buyer_phone = "Por favor ingresá un teléfono válido";
+    }
+
+    setAdminErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   const handleSave = async () => {
+    if (!validateAdminForm()) {
+      return;
+    }
+
     try {
       const updateData: any = {
         status: editData.status,
@@ -96,9 +125,9 @@ export const RaffleAdmin = ({ numbers, onNumberUpdated }: RaffleAdminProps) => {
       number.buyer_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       number.buyer_email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       number.buyer_phone?.includes(searchTerm);
-    
+
     const matchesFilter = filterStatus === "all" || number.status === filterStatus;
-    
+
     return matchesSearch && matchesFilter;
   });
 
@@ -113,6 +142,14 @@ export const RaffleAdmin = ({ numbers, onNumberUpdated }: RaffleAdminProps) => {
       default:
         return null;
     }
+  };
+
+  const isSaveDisabled = () => {
+    const requiresBuyer = editData.status === "reserved" || editData.status === "sold";
+    if (requiresBuyer && editData.buyer_name.trim().length < 2) {
+      return true;
+    }
+    return false;
   };
 
   return (
@@ -189,7 +226,10 @@ export const RaffleAdmin = ({ numbers, onNumberUpdated }: RaffleAdminProps) => {
         </div>
       </div>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog open={dialogOpen} onOpenChange={(open) => {
+        setDialogOpen(open);
+        if (!open) setAdminErrors({});
+      }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Editar Número {selectedNumber?.number}</DialogTitle>
@@ -201,7 +241,13 @@ export const RaffleAdmin = ({ numbers, onNumberUpdated }: RaffleAdminProps) => {
           <div className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="status">Estado del número *</Label>
-              <Select value={editData.status} onValueChange={(value) => setEditData({ ...editData, status: value })}>
+              <Select
+                value={editData.status}
+                onValueChange={(value) => {
+                  setEditData({ ...editData, status: value });
+                  setAdminErrors({ ...adminErrors, buyer_name: "" });
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -220,9 +266,15 @@ export const RaffleAdmin = ({ numbers, onNumberUpdated }: RaffleAdminProps) => {
                   <Input
                     id="buyer_name"
                     value={editData.buyer_name}
-                    onChange={(e) => setEditData({ ...editData, buyer_name: e.target.value })}
+                    onChange={(e) => {
+                      setEditData({ ...editData, buyer_name: e.target.value });
+                      setAdminErrors({ ...adminErrors, buyer_name: "" });
+                    }}
                     placeholder="Juan Pérez"
                   />
+                  {adminErrors.buyer_name && (
+                    <p className="text-sm text-destructive mt-1">{adminErrors.buyer_name}</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="buyer_email">Email</Label>
@@ -230,9 +282,15 @@ export const RaffleAdmin = ({ numbers, onNumberUpdated }: RaffleAdminProps) => {
                     id="buyer_email"
                     type="email"
                     value={editData.buyer_email}
-                    onChange={(e) => setEditData({ ...editData, buyer_email: e.target.value })}
+                    onChange={(e) => {
+                      setEditData({ ...editData, buyer_email: e.target.value });
+                      setAdminErrors({ ...adminErrors, buyer_email: "" });
+                    }}
                     placeholder="juan@email.com"
                   />
+                  {adminErrors.buyer_email && (
+                    <p className="text-sm text-destructive mt-1">{adminErrors.buyer_email}</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="buyer_phone">Teléfono</Label>
@@ -240,15 +298,21 @@ export const RaffleAdmin = ({ numbers, onNumberUpdated }: RaffleAdminProps) => {
                     id="buyer_phone"
                     type="tel"
                     value={editData.buyer_phone}
-                    onChange={(e) => setEditData({ ...editData, buyer_phone: e.target.value })}
+                    onChange={(e) => {
+                      setEditData({ ...editData, buyer_phone: e.target.value });
+                      setAdminErrors({ ...adminErrors, buyer_phone: "" });
+                    }}
                     placeholder="+54 9 11 1234-5678"
                   />
+                  {adminErrors.buyer_phone && (
+                    <p className="text-sm text-destructive mt-1">{adminErrors.buyer_phone}</p>
+                  )}
                 </div>
               </>
             )}
 
             <div className="flex gap-2 pt-4">
-              <Button onClick={handleSave} className="flex-1">
+              <Button onClick={handleSave} className="flex-1" disabled={isSaveDisabled()}>
                 Guardar Cambios
               </Button>
               <Button onClick={() => setDialogOpen(false)} variant="outline">

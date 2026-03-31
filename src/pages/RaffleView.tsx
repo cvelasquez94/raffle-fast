@@ -16,6 +16,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Share2, ArrowLeft, Pencil, CheckCircle2 } from "lucide-react";
 import { searchPaymentsByPreference } from "@/lib/mercadopago";
 
+const isValidWhatsApp = (number: string) => /^\+\d{10,15}$/.test(number);
+
 const RaffleView = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -27,6 +29,8 @@ const RaffleView = () => {
   const [isOwner, setIsOwner] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [finishDialogOpen, setFinishDialogOpen] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editErrors, setEditErrors] = useState<Record<string, string>>({});
   const [editData, setEditData] = useState({
     title: "",
     description: "",
@@ -245,10 +249,46 @@ const RaffleView = () => {
       price_per_number: raffle.price_per_number.toString(),
       whatsapp_number: raffle.whatsapp_number,
     });
+    setEditErrors({});
     setEditDialogOpen(true);
   };
 
+  const validateEditForm = (): boolean => {
+    const errors: Record<string, string> = {};
+
+    if (!editData.title || editData.title.trim().length < 3) {
+      errors.title = "El título debe tener al menos 3 caracteres";
+    } else if (editData.title.trim().length > 100) {
+      errors.title = "El título no puede superar los 100 caracteres";
+    }
+
+    if (!editData.description || editData.description.trim().length < 10) {
+      errors.description = "La descripción debe tener al menos 10 caracteres";
+    } else if (editData.description.trim().length > 500) {
+      errors.description = "La descripción no puede superar los 500 caracteres";
+    }
+
+    const price = parseFloat(editData.price_per_number);
+    if (!editData.price_per_number || isNaN(price) || price <= 0) {
+      errors.price_per_number = "El precio debe ser mayor a 0";
+    } else if (price > 9999999) {
+      errors.price_per_number = "El precio no puede superar $9.999.999";
+    }
+
+    if (!editData.whatsapp_number || !isValidWhatsApp(editData.whatsapp_number)) {
+      errors.whatsapp_number = "El número debe incluir código de país, ej: +5491112345678";
+    }
+
+    setEditErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   const handleSaveEdit = async () => {
+    if (!validateEditForm()) {
+      return;
+    }
+
+    setSavingEdit(true);
     try {
       const { error } = await supabase
         .from("raffles")
@@ -275,6 +315,8 @@ const RaffleView = () => {
         description: error.message || "No se pudo actualizar el talonario",
         variant: "destructive",
       });
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -457,9 +499,16 @@ const RaffleView = () => {
               <Input
                 id="edit-title"
                 value={editData.title}
-                onChange={(e) => setEditData({ ...editData, title: e.target.value })}
+                onChange={(e) => {
+                  setEditData({ ...editData, title: e.target.value });
+                  setEditErrors({ ...editErrors, title: "" });
+                }}
                 placeholder="Ej: Rifa de iPhone 15 Pro"
+                maxLength={100}
               />
+              {editErrors.title && (
+                <p className="text-sm text-destructive mt-1">{editErrors.title}</p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -467,10 +516,20 @@ const RaffleView = () => {
               <Textarea
                 id="edit-description"
                 value={editData.description}
-                onChange={(e) => setEditData({ ...editData, description: e.target.value })}
+                onChange={(e) => {
+                  setEditData({ ...editData, description: e.target.value });
+                  setEditErrors({ ...editErrors, description: "" });
+                }}
                 placeholder="Describe el premio, fecha del sorteo, etc."
                 rows={4}
+                maxLength={500}
               />
+              <p className="text-xs text-muted-foreground text-right">
+                {editData.description.length}/500
+              </p>
+              {editErrors.description && (
+                <p className="text-sm text-destructive mt-1">{editErrors.description}</p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -480,10 +539,17 @@ const RaffleView = () => {
                 type="number"
                 step="0.01"
                 min="0.01"
+                max="9999999"
                 value={editData.price_per_number}
-                onChange={(e) => setEditData({ ...editData, price_per_number: e.target.value })}
+                onChange={(e) => {
+                  setEditData({ ...editData, price_per_number: e.target.value });
+                  setEditErrors({ ...editErrors, price_per_number: "" });
+                }}
                 placeholder="1000.00"
               />
+              {editErrors.price_per_number && (
+                <p className="text-sm text-destructive mt-1">{editErrors.price_per_number}</p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -492,9 +558,15 @@ const RaffleView = () => {
                 id="edit-whatsapp"
                 type="tel"
                 value={editData.whatsapp_number}
-                onChange={(e) => setEditData({ ...editData, whatsapp_number: e.target.value })}
+                onChange={(e) => {
+                  setEditData({ ...editData, whatsapp_number: e.target.value });
+                  setEditErrors({ ...editErrors, whatsapp_number: "" });
+                }}
                 placeholder="+5491112345678"
               />
+              {editErrors.whatsapp_number && (
+                <p className="text-sm text-destructive mt-1">{editErrors.whatsapp_number}</p>
+              )}
             </div>
 
             <div className="space-y-4 pt-4 border-t">
@@ -518,8 +590,17 @@ const RaffleView = () => {
               <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
                 Cancelar
               </Button>
-              <Button onClick={handleSaveEdit}>
-                Guardar Cambios
+              <Button
+                onClick={handleSaveEdit}
+                disabled={
+                  savingEdit ||
+                  !editData.title ||
+                  !editData.description ||
+                  !editData.price_per_number ||
+                  !editData.whatsapp_number
+                }
+              >
+                {savingEdit ? "Guardando..." : "Guardar Cambios"}
               </Button>
             </div>
           </div>

@@ -11,6 +11,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft } from "lucide-react";
 
+const isValidWhatsApp = (number: string) => /^\+\d{10,15}$/.test(number);
+
 const CreateRaffle = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -23,6 +25,7 @@ const CreateRaffle = () => {
     whatsappNumber: "",
     totalNumbers: "50", // Default value
   });
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     checkUser();
@@ -37,8 +40,43 @@ const CreateRaffle = () => {
     setUser(session.user);
   };
 
+  const validateForm = (): boolean => {
+    const errors: Record<string, string> = {};
+
+    if (!formData.title || formData.title.trim().length < 3) {
+      errors.title = "El título debe tener al menos 3 caracteres";
+    } else if (formData.title.trim().length > 100) {
+      errors.title = "El título no puede superar los 100 caracteres";
+    }
+
+    if (!formData.description || formData.description.trim().length < 10) {
+      errors.description = "La descripción debe tener al menos 10 caracteres";
+    } else if (formData.description.trim().length > 500) {
+      errors.description = "La descripción no puede superar los 500 caracteres";
+    }
+
+    const price = parseFloat(formData.pricePerNumber);
+    if (!formData.pricePerNumber || isNaN(price) || price <= 0) {
+      errors.pricePerNumber = "El precio debe ser mayor a 0";
+    } else if (price > 9999999) {
+      errors.pricePerNumber = "El precio no puede superar $9.999.999";
+    }
+
+    if (!formData.whatsappNumber || !isValidWhatsApp(formData.whatsappNumber)) {
+      errors.whatsappNumber = "El número debe incluir código de país, ej: +5491112345678";
+    }
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!validateForm()) {
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -84,10 +122,17 @@ const CreateRaffle = () => {
     }
   };
 
+  const isSubmitDisabled =
+    loading ||
+    !formData.title ||
+    !formData.description ||
+    !formData.pricePerNumber ||
+    !formData.whatsappNumber;
+
   return (
     <div className="min-h-screen bg-background">
       <Navbar user={user} />
-      
+
       <div className="container mx-auto px-4 py-8">
         <Button
           variant="ghost"
@@ -113,9 +158,16 @@ const CreateRaffle = () => {
                   id="title"
                   placeholder="Ej: Rifa de iPhone 15 Pro"
                   value={formData.title}
-                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                  onChange={(e) => {
+                    setFormData({ ...formData, title: e.target.value });
+                    setFormErrors({ ...formErrors, title: "" });
+                  }}
                   required
+                  maxLength={100}
                 />
+                {formErrors.title && (
+                  <p className="text-sm text-destructive mt-1">{formErrors.title}</p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -124,10 +176,20 @@ const CreateRaffle = () => {
                   id="description"
                   placeholder="Describe el premio, fecha del sorteo, etc."
                   value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  onChange={(e) => {
+                    setFormData({ ...formData, description: e.target.value });
+                    setFormErrors({ ...formErrors, description: "" });
+                  }}
                   required
                   rows={4}
+                  maxLength={500}
                 />
+                <p className="text-xs text-muted-foreground text-right">
+                  {formData.description.length}/500
+                </p>
+                {formErrors.description && (
+                  <p className="text-sm text-destructive mt-1">{formErrors.description}</p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -157,11 +219,18 @@ const CreateRaffle = () => {
                   type="number"
                   step="0.01"
                   min="0.01"
+                  max="9999999"
                   placeholder="1000.00"
                   value={formData.pricePerNumber}
-                  onChange={(e) => setFormData({ ...formData, pricePerNumber: e.target.value })}
+                  onChange={(e) => {
+                    setFormData({ ...formData, pricePerNumber: e.target.value });
+                    setFormErrors({ ...formErrors, pricePerNumber: "" });
+                  }}
                   required
                 />
+                {formErrors.pricePerNumber && (
+                  <p className="text-sm text-destructive mt-1">{formErrors.pricePerNumber}</p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -171,9 +240,15 @@ const CreateRaffle = () => {
                   type="tel"
                   placeholder="+5491112345678"
                   value={formData.whatsappNumber}
-                  onChange={(e) => setFormData({ ...formData, whatsappNumber: e.target.value })}
+                  onChange={(e) => {
+                    setFormData({ ...formData, whatsappNumber: e.target.value });
+                    setFormErrors({ ...formErrors, whatsappNumber: "" });
+                  }}
                   required
                 />
+                {formErrors.whatsappNumber && (
+                  <p className="text-sm text-destructive mt-1">{formErrors.whatsappNumber}</p>
+                )}
                 <p className="text-xs text-muted-foreground">
                   Los compradores podrán contactarte por este número para coordinar reservas
                 </p>
@@ -188,7 +263,7 @@ const CreateRaffle = () => {
                 >
                   Cancelar
                 </Button>
-                <Button type="submit" disabled={loading} className="flex-1">
+                <Button type="submit" disabled={isSubmitDisabled} className="flex-1">
                   {loading ? "Creando..." : "Crear Talonario"}
                 </Button>
               </div>
