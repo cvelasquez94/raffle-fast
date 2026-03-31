@@ -26,7 +26,7 @@ export const Navbar = ({ user }: NavbarProps) => {
       <div className="container mx-auto px-4 py-4 flex items-center justify-between">
         <Link to="/" className="flex items-center gap-2 text-xl font-bold text-primary hover:opacity-80 transition-opacity">
           <Ticket className="w-6 h-6" />
-          RifaFácil
+          Rifa rápida
         </Link>
         
         <div className="flex items-center gap-4">
