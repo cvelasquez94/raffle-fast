@@ -11,7 +11,7 @@ import { Ticket } from "lucide-react";
 
 const Auth = () => {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams] = useSearchParams(); // 👈 primero esto
   const { toast } = useToast();
   const [isSignUp, setIsSignUp] = useState(searchParams.get("signup") === "true");
   const [loading, setLoading] = useState(false);
@@ -23,10 +23,12 @@ const Auth = () => {
   });
 
   useEffect(() => {
+    setIsSignUp(searchParams.get("signup") === "true"); // 👈 ahora sí puede usarlo
+  }, [searchParams]);
+
+  useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        navigate("/dashboard");
-      }
+      if (session) navigate("/dashboard");
     });
   }, [navigate]);
 
