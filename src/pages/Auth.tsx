@@ -14,7 +14,7 @@ const isValidPhone = (phone: string) => /^\+?[\d\s\-().]{7,20}$/.test(phone);
 
 const Auth = () => {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams] = useSearchParams(); // 👈 primero esto
   const { toast } = useToast();
   const [isSignUp, setIsSignUp] = useState(searchParams.get("signup") === "true");
   const [loading, setLoading] = useState(false);
@@ -27,10 +27,12 @@ const Auth = () => {
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
+    setIsSignUp(searchParams.get("signup") === "true"); // 👈 ahora sí puede usarlo
+  }, [searchParams]);
+
+  useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        navigate("/dashboard");
-      }
+      if (session) navigate("/dashboard");
     });
   }, [navigate]);
 

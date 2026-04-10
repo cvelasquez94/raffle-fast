@@ -13,7 +13,7 @@ import { NumberGrid } from "@/components/NumberGrid";
 import { RaffleAdmin } from "@/components/RaffleAdmin";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Share2, ArrowLeft, Pencil, CheckCircle2 } from "lucide-react";
+import { Loader2, Share2, ArrowLeft, Pencil, CheckCircle2, Image, Download, MessageCircle, Instagram, Facebook } from "lucide-react";
 import { searchPaymentsByPreference } from "@/lib/mercadopago";
 
 const isValidWhatsApp = (number: string) => /^\+\d{10,15}$/.test(number);
@@ -37,6 +37,9 @@ const RaffleView = () => {
     price_per_number: "",
     whatsapp_number: "",
   });
+  const [shareImageDialogOpen, setShareImageDialogOpen] = useState(false);
+  const [shareImageUrl, setShareImageUrl] = useState<string>("");
+  const [generatingImage, setGeneratingImage] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -345,6 +348,170 @@ const RaffleView = () => {
     }
   };
 
+  const drawRoundedRect = (
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    r: number
+  ) => {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  };
+
+  const handleGenerateShareImage = () => {
+    setGeneratingImage(true);
+
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d")!;
+
+    const cols = 10;
+    const rows = Math.ceil(numbers.length / cols);
+    const cellSize = 60;
+    const padding = 24;
+    const headerHeight = 100;
+    const legendHeight = 60;
+
+    canvas.width = cols * cellSize + padding * 2;
+    canvas.height = headerHeight + rows * cellSize + padding * 2 + legendHeight;
+
+    // White background
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Title
+    ctx.fillStyle = "#1f2937";
+    ctx.font = "bold 22px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(raffle.title, canvas.width / 2, padding + 28);
+
+    // Stats subtitle
+    const available = numbers.filter((n) => n.status === "available").length;
+    const reserved = numbers.filter((n) => n.status === "reserved").length;
+    const sold = numbers.filter((n) => n.status === "sold").length;
+    const paid = numbers.filter((n) => n.status === "paid").length;
+    ctx.font = "14px system-ui, sans-serif";
+    ctx.fillStyle = "#6b7280";
+    ctx.fillText(
+      `${available} disponibles · ${reserved} reservados · ${paid} pagados · ${sold} vendidos`,
+      canvas.width / 2,
+      padding + 56
+    );
+
+    // Draw numbers
+    const statusColors: Record<string, string> = {
+      available: "#22c55e",
+      reserved: "#f59e0b",
+      paid: "#3b82f6",
+      sold: "#9ca3af",
+    };
+
+    numbers.forEach((num, index) => {
+      const col = index % cols;
+      const row = Math.floor(index / cols);
+      const x = padding + col * cellSize;
+      const y = headerHeight + padding + row * cellSize;
+      const size = cellSize - 4;
+
+      ctx.fillStyle = statusColors[num.status] || "#9ca3af";
+      drawRoundedRect(ctx, x + 2, y + 2, size, size, 8);
+      ctx.fill();
+
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 16px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(String(num.number), x + 2 + size / 2, y + 2 + size / 2);
+    });
+
+    // Legend
+    const legendY = headerHeight + padding + rows * cellSize + 16;
+    const legendItems = [
+      { color: "#22c55e", label: "Disponible" },
+      { color: "#f59e0b", label: "Reservado" },
+      { color: "#3b82f6", label: "Pagado" },
+      { color: "#9ca3af", label: "Vendido" },
+    ];
+
+    ctx.textBaseline = "alphabetic";
+    const legendItemWidth = canvas.width / legendItems.length;
+    legendItems.forEach((item, i) => {
+      const lx = i * legendItemWidth + legendItemWidth / 2;
+      ctx.fillStyle = item.color;
+      drawRoundedRect(ctx, lx - 30, legendY, 14, 14, 3);
+      ctx.fill();
+      ctx.fillStyle = "#374151";
+      ctx.font = "12px system-ui, sans-serif";
+      ctx.textAlign = "left";
+      ctx.fillText(item.label, lx - 12, legendY + 12);
+    });
+
+    const dataUrl = canvas.toDataURL("image/png");
+    setShareImageUrl(dataUrl);
+    setGeneratingImage(false);
+    setShareImageDialogOpen(true);
+  };
+
+  const handleDownloadImage = (platform?: string) => {
+    if (!shareImageUrl) return;
+    const link = document.createElement("a");
+    link.download = `talonario-${raffle.title.replace(/\s+/g, "-").toLowerCase()}.png`;
+    link.href = shareImageUrl;
+    link.click();
+    if (platform === "instagram") {
+      toast({
+        title: "Imagen descargada",
+        description: "Abrí Instagram y subí la imagen a tu historia",
+      });
+    }
+  };
+
+  const handleShareToWhatsApp = async () => {
+    if (shareImageUrl && navigator.share) {
+      try {
+        const blob = await (await fetch(shareImageUrl)).blob();
+        const file = new File([blob], "talonario.png", { type: "image/png" });
+        await navigator.share({ files: [file], title: raffle.title });
+        return;
+      } catch (e) {
+        // fallback
+      }
+    }
+    handleDownloadImage("whatsapp");
+    toast({
+      title: "Imagen descargada",
+      description: "Abrí WhatsApp y compartí la imagen en tu estado",
+    });
+  };
+
+  const handleShareToFacebook = async () => {
+    if (shareImageUrl && navigator.share) {
+      try {
+        const blob = await (await fetch(shareImageUrl)).blob();
+        const file = new File([blob], "talonario.png", { type: "image/png" });
+        await navigator.share({ files: [file], title: raffle.title });
+        return;
+      } catch (e) {
+        // fallback
+      }
+    }
+    handleDownloadImage("facebook");
+    toast({
+      title: "Imagen descargada",
+      description: "Subí la imagen a tu historia de Facebook",
+    });
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -422,6 +589,19 @@ const RaffleView = () => {
                     </Button>
                   </>
                 )}
+                <Button
+                  onClick={handleGenerateShareImage}
+                  variant="outline"
+                  className="gap-2"
+                  disabled={generatingImage}
+                >
+                  {generatingImage ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Image className="w-4 h-4" />
+                  )}
+                  Compartir imagen
+                </Button>
                 <Button onClick={handleShare} className="gap-2">
                   <Share2 className="w-4 h-4" />
                   Compartir
@@ -483,6 +663,58 @@ const RaffleView = () => {
           )}
         </div>
       </div>
+
+      {/* Share Image Dialog */}
+      <Dialog open={shareImageDialogOpen} onOpenChange={setShareImageDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Compartir estado del talonario</DialogTitle>
+            <DialogDescription>
+              Compartí esta imagen en tus redes para que tus seguidores vean los números disponibles
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {shareImageUrl && (
+              <div className="border rounded-lg overflow-hidden">
+                <img src={shareImageUrl} alt="Preview del talonario" className="w-full" />
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                onClick={() => handleShareToWhatsApp()}
+                className="gap-2 bg-green-600 hover:bg-green-700"
+              >
+                <MessageCircle className="w-4 h-4" />
+                WhatsApp
+              </Button>
+              <Button
+                onClick={() => handleDownloadImage("instagram")}
+                variant="outline"
+                className="gap-2"
+              >
+                <Instagram className="w-4 h-4" />
+                Instagram
+              </Button>
+              <Button
+                onClick={() => handleShareToFacebook()}
+                variant="outline"
+                className="gap-2"
+              >
+                <Facebook className="w-4 h-4" />
+                Facebook
+              </Button>
+              <Button
+                onClick={() => handleDownloadImage()}
+                variant="outline"
+                className="gap-2"
+              >
+                <Download className="w-4 h-4" />
+                Descargar
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
