@@ -7,9 +7,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Navbar } from "@/components/Navbar";
+import { RaffleImageInput } from "@/components/RaffleImageInput";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft } from "lucide-react";
+import { isValidDateString, removeRaffleImage, todayDateString, uploadRaffleImage } from "@/lib/raffles";
 
 import { isValidWhatsApp } from "@/lib/validation";
 
@@ -24,7 +26,9 @@ const CreateRaffle = () => {
     pricePerNumber: "",
     whatsappNumber: "",
     totalNumbers: "50", // Default value
+    drawDate: "",
   });
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -66,6 +70,14 @@ const CreateRaffle = () => {
       errors.whatsappNumber = "El número debe incluir código de país, ej: +5491112345678";
     }
 
+    if (formData.drawDate) {
+      if (!isValidDateString(formData.drawDate)) {
+        errors.drawDate = "La fecha del sorteo no es válida";
+      } else if (formData.drawDate < todayDateString()) {
+        errors.drawDate = "La fecha del sorteo no puede ser anterior a hoy";
+      }
+    }
+
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -78,6 +90,7 @@ const CreateRaffle = () => {
     }
 
     setLoading(true);
+    let imageUrl: string | null = null;
 
     try {
       const { data: profile } = await supabase
@@ -90,6 +103,10 @@ const CreateRaffle = () => {
         throw new Error("Perfil no encontrado");
       }
 
+      if (imageFile) {
+        imageUrl = await uploadRaffleImage(profile.id, imageFile);
+      }
+
       const { data: raffle, error } = await supabase
         .from("raffles")
         .insert({
@@ -99,6 +116,8 @@ const CreateRaffle = () => {
           price_per_number: parseFloat(formData.pricePerNumber),
           whatsapp_number: formData.whatsappNumber,
           total_numbers: parseInt(formData.totalNumbers),
+          image_url: imageUrl,
+          draw_date: formData.drawDate || null,
         })
         .select()
         .single();
@@ -112,6 +131,8 @@ const CreateRaffle = () => {
 
       navigate(`/raffle/${raffle.id}`);
     } catch (error: any) {
+      // Si la imagen se subió pero el talonario no se creó, no dejarla huérfana.
+      if (imageUrl) removeRaffleImage(imageUrl);
       toast({
         title: "Error",
         description: error.message || "No se pudo crear el talonario",
@@ -174,7 +195,7 @@ const CreateRaffle = () => {
                 <Label htmlFor="description">Descripción *</Label>
                 <Textarea
                   id="description"
-                  placeholder="Describe el premio, fecha del sorteo, etc."
+                  placeholder="Describí el premio y las condiciones de la rifa"
                   value={formData.description}
                   onChange={(e) => {
                     setFormData({ ...formData, description: e.target.value });
@@ -190,6 +211,35 @@ const CreateRaffle = () => {
                 {formErrors.description && (
                   <p className="text-sm text-destructive mt-1">{formErrors.description}</p>
                 )}
+              </div>
+
+              <RaffleImageInput
+                id="image"
+                file={imageFile}
+                onFileChange={setImageFile}
+                error={formErrors.image}
+                onError={(message) => setFormErrors({ ...formErrors, image: message })}
+                disabled={loading}
+              />
+
+              <div className="space-y-2">
+                <Label htmlFor="drawDate">Fecha del sorteo (opcional)</Label>
+                <Input
+                  id="drawDate"
+                  type="date"
+                  min={todayDateString()}
+                  value={formData.drawDate}
+                  onChange={(e) => {
+                    setFormData({ ...formData, drawDate: e.target.value });
+                    setFormErrors({ ...formErrors, drawDate: "" });
+                  }}
+                />
+                {formErrors.drawDate && (
+                  <p className="text-sm text-destructive mt-1">{formErrors.drawDate}</p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Se muestra en la página del talonario. Podés cambiarla después.
+                </p>
               </div>
 
               <div className="space-y-2">
