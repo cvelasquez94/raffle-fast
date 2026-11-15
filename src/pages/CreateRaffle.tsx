@@ -10,6 +10,7 @@ import { Navbar } from "@/components/Navbar";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft } from "lucide-react";
+import { track } from "@/lib/analytics";
 
 const isValidWhatsApp = (number: string) => /^\+\d{10,15}$/.test(number);
 
@@ -104,6 +105,8 @@ const CreateRaffle = () => {
         .single();
 
       if (error) throw error;
+
+      track("raffle_created", { raffle_id: raffle.id, total_numbers: raffle.total_numbers });
 
       toast({
         title: "¡Talonario creado!",

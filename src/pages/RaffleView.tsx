@@ -15,6 +15,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Share2, ArrowLeft, Pencil, CheckCircle2, Image, Download, MessageCircle, Instagram, Facebook } from "lucide-react";
 import { clearPendingOrder, getPendingOrder, verifyOrderPayment } from "@/lib/payments";
+import { track } from "@/lib/analytics";
+import { SiteFooter } from "@/components/SiteFooter";
 
 const isValidWhatsApp = (number: string) => /^\+\d{10,15}$/.test(number);
 
@@ -157,6 +159,7 @@ const RaffleView = () => {
   };
 
   const handleShare = async () => {
+    track("share_clicked", { raffle_id: id, method: "link", role: isOwner ? "owner" : "visitor" });
     const url = window.location.href;
     if (navigator.share) {
       try {
@@ -306,6 +309,7 @@ const RaffleView = () => {
   };
 
   const handleGenerateShareImage = () => {
+    track("share_clicked", { raffle_id: id, method: "image", role: isOwner ? "owner" : "visitor" });
     setGeneratingImage(true);
 
     const canvas = document.createElement("canvas");
@@ -391,6 +395,12 @@ const RaffleView = () => {
       ctx.textAlign = "left";
       ctx.fillText(item.label, lx - 12, legendY + 12);
     });
+
+    // Marca de agua con el sitio
+    ctx.fillStyle = "#9ca3af";
+    ctx.font = "12px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(`Creá tu rifa gratis en ${window.location.host} · Rifa rápida`, canvas.width / 2, canvas.height - 14);
 
     const dataUrl = canvas.toDataURL("image/png");
     setShareImageUrl(dataUrl);
@@ -599,6 +609,8 @@ const RaffleView = () => {
           )}
         </div>
       </div>
+
+      <SiteFooter showPromo={!isOwner} />
 
       {/* Share Image Dialog */}
       <Dialog open={shareImageDialogOpen} onOpenChange={setShareImageDialogOpen}>

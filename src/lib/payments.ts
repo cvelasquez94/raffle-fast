@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { track } from "@/lib/analytics";
 
 const PENDING_ORDER_KEY = "pending_payment";
 const PENDING_ORDER_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -47,6 +48,9 @@ export async function reserveNumbers(raffleId: string, numberIds: string[], buye
   });
 
   if (error) throw new Error(error.message);
+
+  // Sin datos del comprador: solo el talonario y la cantidad de números.
+  track("reservation_made", { raffle_id: raffleId, quantity: numberIds.length, method: "whatsapp" });
 }
 
 /**
@@ -65,6 +69,14 @@ export async function startMercadoPagoPayment(raffleId: string, numberIds: strin
 
   const pending: PendingOrder = { raffleId, orderId: result.order_id, timestamp: Date.now() };
   localStorage.setItem(PENDING_ORDER_KEY, JSON.stringify(pending));
+
+  track("payment_started", {
+    raffle_id: raffleId,
+    quantity: numberIds.length,
+    value: result.amount,
+    currency: "ARS",
+    method: "mercadopago",
+  });
 
   return result;
 }

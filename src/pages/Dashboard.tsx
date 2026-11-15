@@ -7,6 +7,7 @@ import { MercadoPagoConnect } from "@/components/MercadoPagoConnect";
 import { supabase } from "@/integrations/supabase/client";
 import { Plus, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { trackOAuthSignUpIfNew } from "@/lib/analytics";
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -46,6 +47,7 @@ const Dashboard = () => {
       return;
     }
     setUser(session.user);
+    trackOAuthSignUpIfNew(session.user.created_at);
     await loadRaffles(session.user.id);
   };
 
