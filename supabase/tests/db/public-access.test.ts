@@ -167,7 +167,7 @@ describe("authenticated user who does not own the raffle", () => {
 
   it("cannot disconnect someone else's Mercado Pago account", async () => {
     await t.q(`SELECT disconnect_mercadopago()`);
-    expect(await t.admin(`SELECT count(*)::int AS c FROM mp_credentials`)).toEqual([{ c: 1 }]);
+    expect(await t.admin(`SELECT count(*)::int AS c FROM mp_credentials WHERE disconnected_at IS NULL`)).toEqual([{ c: 1 }]);
   });
 
   it("cannot update someone else's profile", async () => {

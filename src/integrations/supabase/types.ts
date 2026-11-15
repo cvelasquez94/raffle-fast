@@ -14,6 +14,20 @@ export type Database = {
   }
   public: {
     Tables: {
+      platform_settings: {
+        Row: {
+          id: boolean
+          marketplace_fee_percent: number
+          updated_at: string
+        }
+        Insert: {
+          [_ in never]: never
+        }
+        Update: {
+          [_ in never]: never
+        }
+        Relationships: []
+      }
       payment_orders: {
         Row: {
           amount: number

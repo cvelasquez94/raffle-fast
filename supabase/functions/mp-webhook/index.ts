@@ -21,8 +21,19 @@ serve(async (req) => {
 
     const admin = adminClient();
     const context = await loadOrderContext(admin, orderId);
-    if (!context || !context.accessToken) {
-      console.error("Webhook for unknown order or disconnected seller:", orderId);
+    if (!context) {
+      console.error("Webhook for unknown order:", orderId);
+      return ok();
+    }
+    if (!context.accessToken) {
+      // Sin credenciales no se puede leer el pago. Queda anotado en la orden
+      // para que no pase desapercibido.
+      console.error("Webhook for an order whose seller has no Mercado Pago credentials:", orderId);
+      await admin
+        .from("payment_orders")
+        .update({ status_detail: "seller_disconnected", mp_payment_id: paymentId, updated_at: new Date().toISOString() })
+        .eq("id", orderId)
+        .eq("status", "pending");
       return ok();
     }
 

@@ -161,7 +161,7 @@ const RaffleView = () => {
       if (owner) {
         const { data: conflictData, error: conflictError } = await supabase
           .from("payment_orders")
-          .select("id, created_at, amount, buyer_name, buyer_email, buyer_phone, number_ids, mp_payment_id")
+          .select("id, created_at, amount, buyer_name, buyer_email, buyer_phone, number_ids, mp_payment_id, status_detail")
           .eq("raffle_id", id)
           .eq("status", "conflict")
           .is("resolved_at", null)
@@ -580,6 +580,24 @@ const RaffleView = () => {
   // Solo el dueño recibe los datos de contacto (filas de get_raffle_numbers_for_owner).
   const winnerNumber = hasWinner && isOwner ? numbers.find(n => n.number === raffle.winning_number) : null;
 
+  // Por qué una orden quedó en conflicto y qué tiene que hacer el organizador.
+  const conflictReasonText = (order: any) => {
+    switch (order.status_detail) {
+      case "raffle_closed":
+        return "El pago se acreditó cuando el talonario ya estaba cerrado. Devolvele el dinero al comprador.";
+      case "amount_mismatch":
+        return "El pago se acreditó por un monto distinto al de los números. No se asignó ningún número: devolvé el dinero o acordá la diferencia con el comprador.";
+      case "partially_refunded":
+        return "El pago tiene una devolución parcial. Revisá si los números siguen correspondiendo al comprador.";
+      case "refunded_needs_review":
+        return "El pago fue devuelto, pero los números ya estaban confirmados o el talonario cerrado. Liberá los números desde \"Administrar\" si corresponde.";
+      case "charged_back_needs_review":
+        return "El comprador desconoció el pago (contracargo) y los números ya estaban confirmados o el talonario cerrado. Revisalo en Mercado Pago y liberá los números si corresponde.";
+      default:
+        return "Recibiste el dinero, pero alguno de los números ya era de otra persona. Devolvé el dinero o asignale otro número disponible desde \"Administrar\".";
+    }
+  };
+
   const conflictNumbersText = (order: any) => {
     const list = (order.number_ids || [])
       .map((numberId: string) => numbers.find(n => n.id === numberId)?.number)
@@ -746,9 +764,8 @@ const RaffleView = () => {
                 </AlertTitle>
                 <AlertDescription className="space-y-3">
                   <p>
-                    Recibiste el dinero por Mercado Pago, pero cuando se acreditó el pago alguno de los números ya
-                    era de otra persona. Contactá al comprador y devolvele el dinero desde tu cuenta de Mercado Pago
-                    (buscá el pago por su N° de operación), o asignale otro número disponible desde "Administrar".
+                    Estos pagos por Mercado Pago necesitan que los revises. Buscá cada uno en tu cuenta de Mercado
+                    Pago por su N° de operación, resolvelo con el comprador y después marcalo como resuelto.
                   </p>
                   <div className="space-y-2">
                     {conflicts.map((order) => (
@@ -757,6 +774,7 @@ const RaffleView = () => {
                           <span className="font-semibold">{order.buyer_name}</span>
                           <span className="font-semibold">${Number(order.amount).toLocaleString("es-AR")}</span>
                         </div>
+                        <p className="font-medium">{conflictReasonText(order)}</p>
                         <p>Números pedidos: {conflictNumbersText(order)}</p>
                         <p>Email: {order.buyer_email || "No informado"}</p>
                         <p>Teléfono: {order.buyer_phone || "No informado"}</p>

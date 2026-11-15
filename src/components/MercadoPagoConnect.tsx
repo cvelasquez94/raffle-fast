@@ -6,6 +6,8 @@ import { CreditCard, CheckCircle2, AlertCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { getMercadoPagoConnectUrl } from "@/lib/payments";
+import { formatFeePercent, getPlatformFeePercent } from "@/lib/platform";
+import { Link } from "react-router-dom";
 
 interface MercadoPagoConnectProps {
   userId: string;
@@ -17,11 +19,32 @@ export function MercadoPagoConnect({ userId, onConnectionChange }: MercadoPagoCo
   const [isLoading, setIsLoading] = useState(true);
   const [mpUserId, setMpUserId] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [feePercent, setFeePercent] = useState<number | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
     checkConnection();
+    getPlatformFeePercent().then(setFeePercent);
   }, [userId]);
+
+  // La comisión se le informa al organizador antes de habilitar los cobros online.
+  const feeNotice = (
+    <div className="rounded-lg border bg-muted/50 p-3 text-sm space-y-1">
+      <p className="font-semibold">
+        {feePercent === null
+          ? "Comisión de Rifa rápida sobre pagos online"
+          : feePercent === 0
+            ? "Sin comisión de Rifa rápida sobre pagos online"
+            : `Comisión de Rifa rápida: ${formatFeePercent(feePercent)} de cada pago online`}
+      </p>
+      <p className="text-muted-foreground">
+        {feePercent === 0
+          ? "Recibís el total de cada pago en tu cuenta de Mercado Pago."
+          : "Se descuenta automáticamente de cada pago que recibís por Mercado Pago; el resto se acredita directo en tu cuenta."}{" "}
+        Mercado Pago cobra además su propia comisión. Las reservas por WhatsApp no tienen costo.
+      </p>
+    </div>
+  );
 
   const checkConnection = async () => {
     try {
@@ -121,6 +144,7 @@ export function MercadoPagoConnect({ userId, onConnectionChange }: MercadoPagoCo
                 Activa
               </Badge>
             </div>
+            {feeNotice}
             <Button
               onClick={handleDisconnect}
               variant="outline"
@@ -128,6 +152,10 @@ export function MercadoPagoConnect({ userId, onConnectionChange }: MercadoPagoCo
             >
               Desconectar cuenta
             </Button>
+            <p className="text-xs text-muted-foreground text-center">
+              Al desconectar dejás de recibir pagos nuevos. Los pagos que ya estén en curso se siguen confirmando
+              durante 3 días.
+            </p>
           </div>
         ) : (
           <div className="space-y-4">
@@ -140,6 +168,7 @@ export function MercadoPagoConnect({ userId, onConnectionChange }: MercadoPagoCo
                 </p>
               </div>
             </div>
+            {feeNotice}
             <Button
               onClick={handleConnect}
               disabled={isConnecting}
@@ -149,7 +178,8 @@ export function MercadoPagoConnect({ userId, onConnectionChange }: MercadoPagoCo
               Conectar con Mercado Pago
             </Button>
             <p className="text-xs text-muted-foreground text-center">
-              Al conectar, autorizas a esta aplicación a crear y gestionar pagos en tu nombre
+              Al conectar, autorizás a esta aplicación a crear y gestionar pagos en tu nombre y aceptás los{" "}
+              <Link to="/terminos" className="underline">Términos y condiciones</Link>
             </p>
           </div>
         )}

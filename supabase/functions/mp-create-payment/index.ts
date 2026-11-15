@@ -69,7 +69,7 @@ serve(async (req) => {
     // 2. Crear la orden.
     const quantity = numberIds.length;
     const unitPrice = Number(raffle.price_per_number);
-    const { amount, fee } = computeOrderAmounts(unitPrice, quantity, feePercent());
+    const { amount, fee } = computeOrderAmounts(unitPrice, quantity, await feePercent(admin));
 
     const { data: order, error: orderError } = await admin
       .from("payment_orders")

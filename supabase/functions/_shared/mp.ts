@@ -52,26 +52,43 @@ export function clientIp(req: Request): string | null {
 }
 
 /** Comisión de la plataforma, en porcentaje sobre el total cobrado. */
-export function feePercent(): number {
+export async function feePercent(admin: SupabaseClient): Promise<number> {
+  // La fuente es platform_settings (la misma que ve el organizador en pantalla).
+  // El secreto MP_MARKETPLACE_FEE_PERCENT queda solo como respaldo.
+  const { data, error } = await admin
+    .from("platform_settings")
+    .select("marketplace_fee_percent")
+    .maybeSingle();
+
+  if (error) console.error("Could not read platform_settings:", error);
+  if (data?.marketplace_fee_percent != null) {
+    return parseFeePercent(data.marketplace_fee_percent);
+  }
   return parseFeePercent(Deno.env.get("MP_MARKETPLACE_FEE_PERCENT"));
 }
 
 /**
  * Devuelve el access token del organizador, renovándolo si está por vencer.
  * Devuelve null si el organizador no tiene Mercado Pago conectado.
+ *
+ * Cuando el organizador desconecta su cuenta, las credenciales se conservan
+ * unos días marcadas con `disconnected_at`. Para crear pagos nuevos no valen;
+ * con `includeDisconnected` sí, para poder confirmar los que estaban en curso.
  */
 export async function getSellerAccessToken(
   admin: SupabaseClient,
   userId: string,
+  options: { includeDisconnected?: boolean } = {},
 ): Promise<string | null> {
   const { data: creds, error } = await admin
     .from("mp_credentials")
-    .select("access_token, refresh_token, expires_at")
+    .select("access_token, refresh_token, expires_at, disconnected_at")
     .eq("user_id", userId)
     .maybeSingle();
 
   if (error) throw error;
   if (!creds) return null;
+  if (creds.disconnected_at && !options.includeDisconnected) return null;
 
   const expiresAt = creds.expires_at ? new Date(creds.expires_at).getTime() : null;
   const needsRefresh = tokenNeedsRefresh(creds.expires_at);
@@ -140,7 +157,9 @@ export async function loadOrderContext(
 
   // deno-lint-ignore no-explicit-any
   const ownerId = (order as any).raffles?.user_id as string | undefined;
-  const accessToken = ownerId ? await getSellerAccessToken(admin, ownerId) : null;
+  const accessToken = ownerId
+    ? await getSellerAccessToken(admin, ownerId, { includeDisconnected: true })
+    : null;
 
   return { order: order as unknown as OrderRow, accessToken };
 }

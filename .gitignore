@@ -26,3 +26,6 @@ dist-ssr
 
 # Worktrees de agentes de Claude Code
 .claude/worktrees/
+
+# Estado local del CLI de Supabase
+supabase/.temp/
