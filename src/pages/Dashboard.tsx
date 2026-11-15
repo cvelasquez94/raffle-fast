@@ -29,6 +29,13 @@ const Dashboard = () => {
       });
       // Clean URL
       window.history.replaceState({}, '', '/dashboard');
+    } else if (urlParams.get('mp_error')) {
+      toast({
+        title: "No se pudo conectar Mercado Pago",
+        description: "La autorización no se completó. Probá conectar tu cuenta de nuevo.",
+        variant: "destructive",
+      });
+      window.history.replaceState({}, '', '/dashboard');
     }
   };
 

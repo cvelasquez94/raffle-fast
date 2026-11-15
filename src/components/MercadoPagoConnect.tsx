@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { CreditCard, CheckCircle2, AlertCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { getMercadoPagoConnectUrl } from "@/lib/payments";
 
 interface MercadoPagoConnectProps {
   userId: string;
@@ -15,6 +16,7 @@ export function MercadoPagoConnect({ userId, onConnectionChange }: MercadoPagoCo
   const [isConnected, setIsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [mpUserId, setMpUserId] = useState<string | null>(null);
+  const [isConnecting, setIsConnecting] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -23,17 +25,14 @@ export function MercadoPagoConnect({ userId, onConnectionChange }: MercadoPagoCo
 
   const checkConnection = async () => {
     try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("mp_access_token, mp_user_id, mp_connected_at")
-        .eq("id", userId)
-        .single();
+      const { data, error } = await supabase.rpc("get_my_mp_connection");
 
       if (error) throw error;
 
-      const connected = !!(data?.mp_access_token && data?.mp_user_id);
+      const connection = data?.[0];
+      const connected = !!connection?.connected;
       setIsConnected(connected);
-      setMpUserId(data?.mp_user_id || null);
+      setMpUserId(connection?.mp_user_id || null);
       onConnectionChange?.(connected);
     } catch (error) {
       console.error("Error checking MP connection:", error);
@@ -42,46 +41,25 @@ export function MercadoPagoConnect({ userId, onConnectionChange }: MercadoPagoCo
     }
   };
 
-  const handleConnect = () => {
-    console.log("handleConnect1");
-    // Get environment variables
-    const mpClientId = import.meta.env.VITE_MERCADOPAGO_CLIENT_ID;
-    const redirectUri = import.meta.env.VITE_MERCADOPAGO_REDIRECT_URI;
-    console.log("handleConnect2");
-    console.log(mpClientId, redirectUri);
-    if (!mpClientId || !redirectUri) {
+  const handleConnect = async () => {
+    setIsConnecting(true);
+    try {
+      // El servidor arma la URL con un `state` de un solo uso ligado a esta sesión.
+      window.location.href = await getMercadoPagoConnectUrl();
+    } catch (error: any) {
+      console.error("Error starting MP OAuth:", error);
       toast({
-        title: "Error de configuración",
-        description: "Las credenciales de Mercado Pago no están configuradas.",
+        title: "Error",
+        description: error.message || "No se pudo iniciar la conexión con Mercado Pago.",
         variant: "destructive",
       });
-      return;
+      setIsConnecting(false);
     }
-
-    // Build OAuth URL
-    const oauthUrl = new URL("https://auth.mercadopago.com/authorization");
-    oauthUrl.searchParams.set("client_id", mpClientId);
-    oauthUrl.searchParams.set("response_type", "code");
-    oauthUrl.searchParams.set("platform_id", "mp");
-    oauthUrl.searchParams.set("redirect_uri", redirectUri);
-    oauthUrl.searchParams.set("state", userId); // Pass userId as state for callback
-
-    // Redirect to Mercado Pago OAuth
-    window.location.href = oauthUrl.toString();
   };
 
   const handleDisconnect = async () => {
     try {
-      const { error } = await supabase
-        .from("profiles")
-        .update({
-          mp_access_token: null,
-          mp_refresh_token: null,
-          mp_public_key: null,
-          mp_user_id: null,
-          mp_connected_at: null,
-        })
-        .eq("id", userId);
+      const { error } = await supabase.rpc("disconnect_mercadopago");
 
       if (error) throw error;
 
@@ -164,6 +142,7 @@ export function MercadoPagoConnect({ userId, onConnectionChange }: MercadoPagoCo
             </div>
             <Button
               onClick={handleConnect}
+              disabled={isConnecting}
               className="w-full gap-2 bg-blue-600 hover:bg-blue-700"
             >
               <CreditCard className="w-4 h-4" />

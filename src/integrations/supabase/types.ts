@@ -19,6 +19,7 @@ export type Database = {
           created_at: string
           full_name: string
           id: string
+          mp_connected: boolean
           phone: string | null
         }
         Insert: {
@@ -43,6 +44,10 @@ export type Database = {
           created_at: string
           id: string
           number: number
+          order_id: string | null
+          payment_id: string | null
+          payment_link: string | null
+          payment_status: string | null
           raffle_id: string
           reserved_at: string | null
           reserved_until: string | null
@@ -69,6 +74,10 @@ export type Database = {
           created_at?: string
           id?: string
           number?: number
+          order_id?: string | null
+          payment_id?: string | null
+          payment_link?: string | null
+          payment_status?: string | null
           raffle_id?: string
           reserved_at?: string | null
           reserved_until?: string | null
@@ -137,10 +146,35 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      disconnect_mercadopago: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
+      get_my_mp_connection: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          connected: boolean
+          mp_user_id: string | null
+          connected_at: string
+        }[]
+      }
+      get_raffle_numbers_for_owner: {
+        Args: { p_raffle_id: string }
+        Returns: Database["public"]["Tables"]["raffle_numbers"]["Row"][]
+      }
+      reserve_numbers: {
+        Args: {
+          p_raffle_id: string
+          p_number_ids: string[]
+          p_buyer_name: string
+          p_buyer_email?: string | null
+          p_buyer_phone?: string | null
+        }
+        Returns: string
+      }
     }
     Enums: {
-      number_status: "available" | "reserved" | "sold"
+      number_status: "available" | "reserved" | "paid" | "sold"
       raffle_status: "active" | "completed" | "cancelled"
     }
     CompositeTypes: {
@@ -269,7 +303,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      number_status: ["available", "reserved", "sold"],
+      number_status: ["available", "reserved", "paid", "sold"],
       raffle_status: ["active", "completed", "cancelled"],
     },
   },

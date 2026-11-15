@@ -14,7 +14,7 @@ import { RaffleAdmin } from "@/components/RaffleAdmin";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Share2, ArrowLeft, Pencil, CheckCircle2, Image, Download, MessageCircle, Instagram, Facebook } from "lucide-react";
-import { searchPaymentsByPreference } from "@/lib/mercadopago";
+import { clearPendingOrder, getPendingOrder, verifyOrderPayment } from "@/lib/payments";
 
 const isValidWhatsApp = (number: string) => /^\+\d{10,15}$/.test(number);
 
@@ -40,6 +40,7 @@ const RaffleView = () => {
   const [shareImageDialogOpen, setShareImageDialogOpen] = useState(false);
   const [shareImageUrl, setShareImageUrl] = useState<string>("");
   const [generatingImage, setGeneratingImage] = useState(false);
+  const [hasPendingPayment, setHasPendingPayment] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -74,104 +75,40 @@ const RaffleView = () => {
     }
   };
 
+  // Respaldo del webhook: si este navegador inició un pago, le pide al
+  // servidor que consulte a Mercado Pago y actualice los números.
   const checkPendingPayment = async () => {
+    const pendingOrder = id ? getPendingOrder(id) : null;
+    setHasPendingPayment(!!pendingOrder);
+    if (!pendingOrder) return;
+
     try {
-      const pendingPaymentStr = localStorage.getItem('pending_payment');
-      if (!pendingPaymentStr) return;
+      const status = await verifyOrderPayment(pendingOrder.orderId);
 
-      const pendingPayment = JSON.parse(pendingPaymentStr);
-
-      // Verificar que sea para este raffle
-      if (pendingPayment.raffleId !== id) return;
-
-      // Verificar que no haya expirado (24 horas)
-      const hoursSince = (Date.now() - pendingPayment.timestamp) / (1000 * 60 * 60);
-      if (hoursSince > 24) {
-        localStorage.removeItem('pending_payment');
-        return;
-      }
-
-      // Esperar a que el raffle se cargue
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Obtener el access token del perfil del dueño del raffle
-      const { data: raffleData } = await supabase
-        .from("raffles")
-        .select("user_id, profiles!inner(mp_access_token)")
-        .eq("id", id)
-        .single();
-
-      const accessToken = raffleData?.profiles?.mp_access_token;
-
-      if (!accessToken) {
-        localStorage.removeItem('pending_payment');
-        return;
-      }
-
-      // Buscar pagos asociados a esta preferencia
-      const paymentsData = await searchPaymentsByPreference(
-        accessToken,
-        pendingPayment.preferenceId
-      );
-
-      console.log("Datos de pagos de Mercado Pago:", paymentsData);
-      console.log("Preferencia ID:", pendingPayment.preferenceId);
-
-      // Verificar si hay algún pago aprobado
-      const approvedPayment = paymentsData.results?.find(
-        (payment: any) => payment.status === 'approved'
-      );
-
-      console.log("Pago aprobado encontrado:", approvedPayment);
-
-      if (approvedPayment) {
-        // Marcar los números como "paid" (pagados, esperando confirmación del owner)
-        const numberIds = pendingPayment.numberId
-          ? [pendingPayment.numberId]
-          : pendingPayment.numberIds;
-
-        const updateResults = await Promise.all(
-          numberIds.map((numberId: string) =>
-            supabase
-              .from("raffle_numbers")
-              .update({
-                status: "paid",
-                payment_status: "approved",
-                reserved_at: null,
-                reserved_until: null,
-              })
-              .eq("id", numberId)
-          )
-        );
-
-        // Verificar si hubo errores
-        const errors = updateResults.filter(r => r.error);
-        if (errors.length > 0) {
-          console.error("Errores al actualizar números:", errors);
-        }
-
+      if (status === "approved") {
         toast({
           title: "¡Pago confirmado!",
           description: "Tu pago fue procesado exitosamente. El vendedor confirmará la venta cuando reciba el dinero.",
         });
-
-        localStorage.removeItem('pending_payment');
-        loadData(); // Recargar datos
+      } else if (status === "conflict") {
+        toast({
+          title: "Pago recibido",
+          description: "Recibimos tu pago, pero alguno de los números ya no estaba disponible. Contactá al organizador para resolverlo.",
+          variant: "destructive",
+        });
+      } else if (status === "rejected" || status === "cancelled") {
+        toast({
+          title: "Pago no completado",
+          description: "El pago no fue procesado. Los números quedarán reservados por 24 horas.",
+          variant: "destructive",
+        });
       } else {
-        // Verificar si hay algún pago rechazado
-        const rejectedPayment = paymentsData.results?.find(
-          (payment: any) => payment.status === 'rejected' || payment.status === 'cancelled'
-        );
-
-        if (rejectedPayment) {
-          toast({
-            title: "Pago no completado",
-            description: "El pago no fue procesado. Los números quedarán reservados por 24 horas.",
-            variant: "destructive",
-          });
-          localStorage.removeItem('pending_payment');
-        }
+        return; // Sigue pendiente: se vuelve a consultar en la próxima visita.
       }
+
+      clearPendingOrder();
+      setHasPendingPayment(false);
+      loadData();
     } catch (error) {
       console.error("Error al verificar pago pendiente:", error);
       // No mostrar error al usuario, esto es un chequeo en segundo plano
@@ -185,26 +122,25 @@ const RaffleView = () => {
 
       const { data: raffleData, error: raffleError } = await supabase
         .from("raffles")
-        .select("*, profiles(full_name, mp_access_token)")
+        .select("*, profiles(full_name, mp_connected)")
         .eq("id", id)
         .single();
 
       if (raffleError) throw raffleError;
 
-      // Add the OAuth access token to the raffle object for use in NumberGrid
-      const raffleWithToken = {
-        ...raffleData,
-        mercadopago_access_token: raffleData.profiles?.mp_access_token || null,
-      };
+      const owner = session?.user?.id === raffleData.user_id;
 
-      setRaffle(raffleWithToken);
-      setIsOwner(session?.user?.id === raffleData.user_id);
+      setRaffle(raffleData);
+      setIsOwner(owner);
 
-      const { data: numbersData, error: numbersError } = await supabase
-        .from("raffle_numbers")
-        .select("*")
-        .eq("raffle_id", id)
-        .order("number");
+      // Los datos de los compradores solo los puede leer el dueño del talonario.
+      const { data: numbersData, error: numbersError } = owner
+        ? await supabase.rpc("get_raffle_numbers_for_owner", { p_raffle_id: id })
+        : await supabase
+            .from("raffle_numbers")
+            .select("id, raffle_id, number, status, reserved_until")
+            .eq("raffle_id", id)
+            .order("number");
 
       if (numbersError) throw numbersError;
       setNumbers(numbersData || []);
@@ -541,8 +477,8 @@ const RaffleView = () => {
           </Button>
         )}
 
-        {/* Botón de verificación manual (solo visible si hay pago pendiente en localStorage) */}
-        {localStorage.getItem('pending_payment') && (
+        {/* Verificación manual, visible mientras haya un pago iniciado desde este navegador */}
+        {hasPendingPayment && (
           <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
             <p className="text-sm mb-2">Hay un pago pendiente de verificación</p>
             <Button onClick={handleManualPaymentCheck} size="sm" variant="outline">
