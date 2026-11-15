@@ -16,7 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Share2, ArrowLeft, Pencil, CheckCircle2, Image, Download, MessageCircle, Instagram, Facebook } from "lucide-react";
 import { clearPendingOrder, getPendingOrder, verifyOrderPayment } from "@/lib/payments";
 
-const isValidWhatsApp = (number: string) => /^\+\d{10,15}$/.test(number);
+import { isValidWhatsApp } from "@/lib/validation";
 
 const RaffleView = () => {
   const { id } = useParams();

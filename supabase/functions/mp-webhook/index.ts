@@ -4,29 +4,20 @@
 // lee el pago real desde la API de Mercado Pago con el token del organizador.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { adminClient, applyPaymentToOrder, loadOrderContext, MP_API } from "../_shared/mp.ts";
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { parseWebhookNotification } from "../_shared/logic.ts";
 
 const ok = () => new Response("ok", { status: 200 });
 
 serve(async (req) => {
   try {
     const url = new URL(req.url);
-    const orderId = url.searchParams.get("order") ?? "";
     const body = await req.json().catch(() => ({}));
 
-    // Formato nuevo: ?type=payment&data.id=123 (y lo mismo en el body).
-    // Formato IPN viejo: ?topic=payment&id=123.
-    const type = url.searchParams.get("type") ?? url.searchParams.get("topic") ?? body?.type ?? body?.topic;
-    const paymentId = url.searchParams.get("data.id") ?? body?.data?.id ??
-      (type === "payment" ? url.searchParams.get("id") : null);
-
-    if (type !== "payment" || !paymentId || !UUID_RE.test(orderId)) {
+    const notification = parseWebhookNotification(url, body);
+    if (!notification) {
       return ok(); // merchant_order u otros avisos: no nos interesan.
     }
-    if (!/^\d+$/.test(String(paymentId))) {
-      return ok();
-    }
+    const { orderId, paymentId } = notification;
 
     const admin = adminClient();
     const context = await loadOrderContext(admin, orderId);

@@ -11,8 +11,7 @@ import {
   MP_API,
   UserError,
 } from "../_shared/mp.ts";
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { pickRelevantPayment, UUID_RE } from "../_shared/logic.ts";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -48,9 +47,7 @@ serve(async (req) => {
       return json({ status: context.order.status });
     }
 
-    // deno-lint-ignore no-explicit-any
-    const results: any[] = (await searchResponse.json()).results ?? [];
-    const payment = results.find((p) => p.status === "approved") ?? results[0];
+    const payment = pickRelevantPayment((await searchResponse.json()).results);
 
     if (!payment) {
       return json({ status: context.order.status });

@@ -13,11 +13,28 @@ npm i              # install
 npm run dev        # dev server on http://localhost:8080 (not 5173)
 npm run build      # production build
 npm run build:dev  # build in development mode
-npm run lint       # eslint
+npm run lint       # eslint (no-explicit-any is a warning; errors block CI)
+npm run typecheck  # tsc --noEmit -p tsconfig.app.json (vite build does not type-check)
 npm run preview    # serve the production build
+
+npm test           # all tests once (Vitest): frontend, Edge Function logic, database
+npm run test:db    # only the database tests (supabase/tests/db)
+npm run test:watch # watch mode
+npx vitest run src/lib/payments.test.ts            # a single file
+npx vitest run supabase/tests/db -t "rate limit"   # tests whose name matches
 ```
 
-There is no test runner and no `typecheck` script. `vite build` does not type-check; use `npx tsc --noEmit -p tsconfig.app.json` if you need one. TypeScript is non-strict (`strict: false`, `strictNullChecks: false`, `noImplicitAny: false`), and the code uses `any` freely for Supabase rows.
+TypeScript is non-strict (`strict: false`, `strictNullChecks: false`, `noImplicitAny: false`), and the code uses `any` freely for Supabase rows.
+
+### Tests
+
+Vitest, Node environment, no browser/jsdom (config in `vitest.config.ts`). Three groups:
+
+- `src/**/*.test.ts` — frontend units next to the code (`src/lib/payments.ts` with the Supabase client mocked via `vi.mock("@/integrations/supabase/client")` and an in-memory `localStorage`; `src/lib/validation.ts`). There are no component tests.
+- `supabase/tests/db/` — the real SQL (`supabase/schema.sql` + every file in `supabase/migrations/` in filename order) run in an in-memory Postgres (PGlite). `supabase/tests/helpers/db.ts` emulates the Supabase roles (`anon`, `authenticated`, `service_role`), `auth.uid()` and default privileges; use `t.as(role, userId)` to act as a role and `t.admin(sql)` to set up or inspect data as superuser. Each test file gets its own database. Any change to grants, RLS policies or the reservation/payment SQL functions needs a test here; new migrations are picked up automatically.
+- `supabase/tests/functions/` — the pure decision logic of the Edge Functions in `supabase/functions/_shared/logic.ts` (fee calculation, payment amount/currency/reference validation, webhook parsing). That file must stay free of `Deno.*` and URL imports so both Deno and Vitest can load it. The functions themselves (HTTP handlers, calls to Mercado Pago and Supabase) are **not** executed by any test.
+
+CI (`.github/workflows/ci.yml`) runs lint, typecheck, tests and build on pull requests and pushes to `main`.
 
 ## Environment Variables
 
@@ -35,7 +52,7 @@ Edge Function secrets (set in Supabase, not in Vite):
 
 Pages and components call the `supabase` client (`@/integrations/supabase/client`) directly inside `useEffect` / event handlers and keep results in `useState`. After a mutation, children call an `onNumberUpdated` callback that makes `RaffleView` re-run `loadData()`.
 
-Although they are installed (and `QueryClientProvider` is mounted in `App.tsx`), the codebase currently does **not** use TanStack Query hooks, React Hook Form, Zod, or Supabase real-time subscriptions. Forms are controlled inputs with hand-written `validateForm()` functions and regex helpers (`isValidEmail`, `isValidPhone`, `isValidWhatsApp`) duplicated per file. Follow the existing style unless asked to migrate.
+Although they are installed (and `QueryClientProvider` is mounted in `App.tsx`), the codebase currently does **not** use TanStack Query hooks, React Hook Form, Zod, or Supabase real-time subscriptions. Forms are controlled inputs with hand-written `validateForm()` functions and the regex helpers in `src/lib/validation.ts` (`isValidEmail`, `isValidPhone`, `isValidWhatsApp`). Follow the existing style unless asked to migrate.
 
 Feedback uses `useToast` from `@/hooks/use-toast` (`toast({ title, description, variant })`), not `sonner`.
 
@@ -65,7 +82,7 @@ Personal data and secrets are not readable with the anon key, so **never `select
 
 ### Mercado Pago flow (marketplace model, all server-side)
 
-Money goes straight to the organizer's MP account; the platform takes `marketplace_fee` on each preference. Edge Functions live in `supabase/functions/` with shared code in `_shared/mp.ts`:
+Money goes straight to the organizer's MP account; the platform takes `marketplace_fee` on each preference. Edge Functions live in `supabase/functions/` with shared code in `_shared/mp.ts` (environment, Supabase and MP calls) and `_shared/logic.ts` (pure, unit-tested decisions):
 
 1. **Connect** — `MercadoPagoConnect.tsx` calls `mp-oauth-start` (requires login), which stores a one-time `state` in `mp_oauth_states` and returns the MP authorization URL. `mp-oauth-callback` consumes the state, exchanges the code and upserts `mp_credentials`; a trigger mirrors it to `profiles.mp_connected`, which is what the buyer UI checks to show the pay button.
 2. **Pay** — `NumberGrid` → `startMercadoPagoPayment()` → `mp-create-payment`: reserves the numbers, inserts a `payment_orders` row (amount computed from the DB price), creates the Checkout preference with the organizer's token (`external_reference = order.id`, `notification_url = mp-webhook?order=<id>`, expiring with the reservation) and returns the `init_point`. The order id is kept in `localStorage` (`pending_payment`).

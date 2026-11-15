@@ -10,8 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { MessageCircle, Check, X, CheckSquare, Square, CreditCard } from "lucide-react";
 import { reserveNumbers, startMercadoPagoPayment } from "@/lib/payments";
 
-const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-const isValidPhone = (phone: string) => /^\+?[\d\s\-().]{7,20}$/.test(phone);
+import { isValidEmail, isValidPhone } from "@/lib/validation";
 
 interface NumberGridProps {
   numbers: any[];
