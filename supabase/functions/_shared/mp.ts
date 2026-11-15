@@ -1,5 +1,16 @@
 // Código compartido por las Edge Functions de Mercado Pago.
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  expiresAtFrom,
+  firstForwardedIp,
+  parseFeePercent,
+  resolvePaymentOutcome,
+  tokenNeedsRefresh,
+  UserError,
+} from "./logic.ts";
+
+// La lógica pura vive en logic.ts (testeada con Vitest); se re-exporta para las funciones.
+export { expiresAtFrom, UserError };
 
 export const MP_API = "https://api.mercadopago.com";
 
@@ -14,15 +25,6 @@ export function json(body: unknown, status = 200): Response {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
-}
-
-/** Error cuyo mensaje se puede mostrar tal cual al usuario. */
-export class UserError extends Error {
-  status: number;
-  constructor(message: string, status = 400) {
-    super(message);
-    this.status = status;
-  }
 }
 
 export function errorResponse(error: unknown): Response {
@@ -46,17 +48,13 @@ export function appUrl(): string {
 }
 
 export function clientIp(req: Request): string | null {
-  const forwarded = req.headers.get("x-forwarded-for") || "";
-  return forwarded.split(",")[0].trim() || null;
+  return firstForwardedIp(req.headers.get("x-forwarded-for"));
 }
 
 /** Comisión de la plataforma, en porcentaje sobre el total cobrado. */
 export function feePercent(): number {
-  const value = Number(Deno.env.get("MP_MARKETPLACE_FEE_PERCENT") ?? "5");
-  return Number.isFinite(value) && value >= 0 && value < 100 ? value : 0;
+  return parseFeePercent(Deno.env.get("MP_MARKETPLACE_FEE_PERCENT"));
 }
-
-const REFRESH_MARGIN_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * Devuelve el access token del organizador, renovándolo si está por vencer.
@@ -76,7 +74,7 @@ export async function getSellerAccessToken(
   if (!creds) return null;
 
   const expiresAt = creds.expires_at ? new Date(creds.expires_at).getTime() : null;
-  const needsRefresh = expiresAt !== null && expiresAt - Date.now() < REFRESH_MARGIN_MS;
+  const needsRefresh = tokenNeedsRefresh(creds.expires_at);
 
   if (!needsRefresh || !creds.refresh_token) {
     return creds.access_token;
@@ -119,12 +117,6 @@ export async function getSellerAccessToken(
   return token.access_token;
 }
 
-export function expiresAtFrom(expiresInSeconds: unknown): string | null {
-  const seconds = Number(expiresInSeconds);
-  if (!Number.isFinite(seconds) || seconds <= 0) return null;
-  return new Date(Date.now() + seconds * 1000).toISOString();
-}
-
 interface OrderRow {
   id: string;
   raffle_id: string;
@@ -163,20 +155,13 @@ export async function applyPaymentToOrder(
   // deno-lint-ignore no-explicit-any
   payment: any,
 ): Promise<string> {
-  if (payment.external_reference !== order.id) {
-    throw new UserError("El pago no corresponde a esta orden");
-  }
-
-  let status: string = payment.status;
-  let detail: string | null = payment.status_detail ?? null;
-
-  if (status === "approved") {
-    const paid = Number(payment.transaction_amount);
-    if (payment.currency_id !== "ARS" || !(paid >= Number(order.amount))) {
-      console.error("Payment amount mismatch", { order: order.id, payment: payment.id, paid });
-      status = "rejected";
-      detail = "amount_mismatch";
-    }
+  const { status, detail, mismatch } = resolvePaymentOutcome(order, payment);
+  if (mismatch) {
+    console.error("Payment amount mismatch", {
+      order: order.id,
+      payment: payment.id,
+      paid: Number(payment.transaction_amount),
+    });
   }
 
   const { data, error } = await admin.rpc("apply_order_payment", {

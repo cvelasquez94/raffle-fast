@@ -14,8 +14,7 @@ import {
   MP_API,
   UserError,
 } from "../_shared/mp.ts";
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { computeOrderAmounts, UUID_RE } from "../_shared/logic.ts";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -68,8 +67,7 @@ serve(async (req) => {
     // 2. Crear la orden.
     const quantity = numberIds.length;
     const unitPrice = Number(raffle.price_per_number);
-    const amount = Math.round(unitPrice * quantity * 100) / 100;
-    const fee = Math.round(amount * feePercent()) / 100;
+    const { amount, fee } = computeOrderAmounts(unitPrice, quantity, feePercent());
 
     const { data: order, error: orderError } = await admin
       .from("payment_orders")

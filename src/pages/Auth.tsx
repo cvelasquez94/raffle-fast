@@ -9,8 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Ticket } from "lucide-react";
 
-const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-const isValidPhone = (phone: string) => /^\+?[\d\s\-().]{7,20}$/.test(phone);
+import { isValidEmail, isValidPhone } from "@/lib/validation";
 
 const Auth = () => {
   const navigate = useNavigate();

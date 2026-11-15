@@ -11,7 +11,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft } from "lucide-react";
 
-const isValidWhatsApp = (number: string) => /^\+\d{10,15}$/.test(number);
+import { isValidWhatsApp } from "@/lib/validation";
 
 const CreateRaffle = () => {
   const navigate = useNavigate();

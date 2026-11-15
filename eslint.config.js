@@ -21,6 +21,15 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
       "@typescript-eslint/no-unused-vars": "off",
+      // El código usa `any` a propósito para las filas de Supabase: avisa, no bloquea.
+      "@typescript-eslint/no-explicit-any": "warn",
+    },
+  },
+  {
+    // Código generado por shadcn/ui: no se edita a mano para conformar al linter.
+    files: ["src/components/ui/**/*.{ts,tsx}"],
+    rules: {
+      "@typescript-eslint/no-empty-object-type": "off",
     },
   },
 );
