@@ -1,0 +1,19 @@
+# Configuración de Edge Functions para `supabase functions deploy`.
+
+# Las abre el navegador al volver de Mercado Pago / las llama Mercado Pago:
+# no traen el JWT de Supabase.
+[functions.mp-oauth-callback]
+verify_jwt = false
+
+[functions.mp-webhook]
+verify_jwt = false
+
+# Estas se llaman desde el frontend con supabase.functions.invoke (JWT anon o de usuario).
+[functions.mp-oauth-start]
+verify_jwt = true
+
+[functions.mp-create-payment]
+verify_jwt = true
+
+[functions.mp-verify-payment]
+verify_jwt = true

@@ -10,8 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Edit, Search, X } from "lucide-react";
 
-const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-const isValidPhone = (phone: string) => /^\+?[\d\s\-().]{7,20}$/.test(phone);
+import { isValidEmail, isValidPhone } from "@/lib/validation";
 
 interface RaffleAdminProps {
   numbers: any[];
@@ -46,7 +45,7 @@ export const RaffleAdmin = ({ numbers, onNumberUpdated }: RaffleAdminProps) => {
 
   const validateAdminForm = (): boolean => {
     const errors: Record<string, string> = {};
-    const requiresBuyer = editData.status === "reserved" || editData.status === "sold";
+    const requiresBuyer = editData.status === "reserved" || editData.status === "paid" || editData.status === "sold";
 
     if (requiresBuyer && editData.buyer_name.trim().length < 2) {
       errors.buyer_name = "El nombre del comprador debe tener al menos 2 caracteres";
@@ -86,6 +85,10 @@ export const RaffleAdmin = ({ numbers, onNumberUpdated }: RaffleAdminProps) => {
         const reservedUntil = new Date();
         reservedUntil.setHours(reservedUntil.getHours() + 24);
         updateData.reserved_until = reservedUntil.toISOString();
+        updateData.sold_at = null;
+      } else if (editData.status === "paid") {
+        updateData.reserved_at = null;
+        updateData.reserved_until = null;
         updateData.sold_at = null;
       } else {
         updateData.reserved_at = null;
@@ -145,7 +148,7 @@ export const RaffleAdmin = ({ numbers, onNumberUpdated }: RaffleAdminProps) => {
   };
 
   const isSaveDisabled = () => {
-    const requiresBuyer = editData.status === "reserved" || editData.status === "sold";
+    const requiresBuyer = editData.status === "reserved" || editData.status === "paid" || editData.status === "sold";
     if (requiresBuyer && editData.buyer_name.trim().length < 2) {
       return true;
     }
@@ -259,7 +262,7 @@ export const RaffleAdmin = ({ numbers, onNumberUpdated }: RaffleAdminProps) => {
               </Select>
             </div>
 
-            {(editData.status === "reserved" || editData.status === "sold") && (
+            {(editData.status === "reserved" || editData.status === "paid" || editData.status === "sold") && (
               <>
                 <div className="space-y-2">
                   <Label htmlFor="buyer_name">Nombre del comprador</Label>

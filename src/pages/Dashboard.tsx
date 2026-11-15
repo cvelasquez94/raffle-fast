@@ -7,6 +7,7 @@ import { MercadoPagoConnect } from "@/components/MercadoPagoConnect";
 import { supabase } from "@/integrations/supabase/client";
 import { Plus, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { trackOAuthSignUpIfNew } from "@/lib/analytics";
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -29,6 +30,13 @@ const Dashboard = () => {
       });
       // Clean URL
       window.history.replaceState({}, '', '/dashboard');
+    } else if (urlParams.get('mp_error')) {
+      toast({
+        title: "No se pudo conectar Mercado Pago",
+        description: "La autorización no se completó. Probá conectar tu cuenta de nuevo.",
+        variant: "destructive",
+      });
+      window.history.replaceState({}, '', '/dashboard');
     }
   };
 
@@ -39,6 +47,7 @@ const Dashboard = () => {
       return;
     }
     setUser(session.user);
+    trackOAuthSignUpIfNew(session.user.created_at);
     await loadRaffles(session.user.id);
   };
 

@@ -8,10 +8,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { MessageCircle, Check, X, CheckSquare, Square, CreditCard } from "lucide-react";
-import { createMercadoPagoPaymentLink } from "@/lib/mercadopago";
+import { reserveNumbers, startMercadoPagoPayment } from "@/lib/payments";
 
-const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-const isValidPhone = (phone: string) => /^\+?[\d\s\-().]{7,20}$/.test(phone);
+import { isValidEmail, isValidPhone } from "@/lib/validation";
 
 interface NumberGridProps {
   numbers: any[];
@@ -36,6 +35,10 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
   const [reserveErrors, setReserveErrors] = useState<Record<string, string>>({});
   const [bulkErrors, setBulkErrors] = useState<Record<string, string>>({});
   const [ownerErrors, setOwnerErrors] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
+
+  // El organizador tiene Mercado Pago conectado (dato público del perfil).
+  const mpEnabled = !!raffle.profiles?.mp_connected;
 
   const handleNumberClick = (number: any) => {
     // Si el raffle está completado y no es el dueño, no permitir interacción
@@ -115,10 +118,8 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
       return;
     }
 
+    setSubmitting(true);
     try {
-      const reservedUntil = new Date();
-      reservedUntil.setHours(reservedUntil.getHours() + 24);
-
       // Preparar URL de WhatsApp
       const numbersList = numbers
         .filter(n => selectedNumbers.includes(n.id))
@@ -131,28 +132,8 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
       );
       const whatsappUrl = `https://wa.me/${raffle.whatsapp_number}?text=${message}`;
 
-      // Reservar todos los números seleccionados
-      const updatePromises = selectedNumbers.map(numberId =>
-        supabase
-          .from("raffle_numbers")
-          .update({
-            status: "reserved",
-            buyer_name: reserveData.name,
-            buyer_email: reserveData.email || null,
-            buyer_phone: reserveData.phone || null,
-            reserved_at: new Date().toISOString(),
-            reserved_until: reservedUntil.toISOString(),
-          })
-          .eq("id", numberId)
-          .eq("status", "available")
-      );
-
-      const results = await Promise.all(updatePromises);
-      const errors = results.filter(r => r.error);
-
-      if (errors.length > 0) {
-        throw new Error(`No se pudieron reservar ${errors.length} números`);
-      }
+      // Reservar todos los números seleccionados (todos o ninguno)
+      await reserveNumbers(raffle.id, selectedNumbers, reserveData);
 
       toast({
         title: "¡Números reservados!",
@@ -174,6 +155,9 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
         description: error.message || "No se pudieron reservar todos los números",
         variant: "destructive",
       });
+      onNumberUpdated();
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -184,85 +168,17 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
       return;
     }
 
+    setSubmitting(true);
     try {
-      if (!raffle.mercadopago_access_token) {
-        throw new Error("Mercado Pago no está configurado para este talonario");
-      }
-
-      const numbersList = numbers
-        .filter(n => selectedNumbers.includes(n.id))
-        .map(n => n.number)
-        .sort((a, b) => a - b)
-        .join(", ");
-
-      const totalAmount = raffle.price_per_number * selectedNumbers.length;
-
-      // Generar link de pago
-      const result = await createMercadoPagoPaymentLink({
-        accessToken: raffle.mercadopago_access_token,
-        title: `${raffle.title} - ${selectedNumbers.length} números`,
-        description: `Números: ${numbersList}`,
-        price: raffle.price_per_number,
-        quantity: selectedNumbers.length,
-        buyerEmail: reserveData.email,
-        buyerName: reserveData.name,
-        externalReference: `${raffle.id}-bulk-${selectedNumbers.join('-')}`,
-      });
-
-      if (!result.success || !result.paymentLink) {
-        throw new Error(result.error || "No se pudo generar el link de pago");
-      }
-
-      // Reservar todos los números
-      const reservedUntil = new Date();
-      reservedUntil.setHours(reservedUntil.getHours() + 24);
-
-      const updatePromises = selectedNumbers.map(numberId =>
-        supabase
-          .from("raffle_numbers")
-          .update({
-            status: "reserved",
-            buyer_name: reserveData.name,
-            buyer_email: reserveData.email || null,
-            buyer_phone: reserveData.phone || null,
-            reserved_at: new Date().toISOString(),
-            reserved_until: reservedUntil.toISOString(),
-            payment_link: result.paymentLink,
-            payment_id: result.preferenceId, // Store preference ID for tracking
-          })
-          .eq("id", numberId)
-          .eq("status", "available")
-      );
-
-      const results = await Promise.all(updatePromises);
-      const errs = results.filter(r => r.error);
-
-      if (errs.length > 0) {
-        throw new Error(`No se pudieron reservar ${errs.length} números`);
-      }
+      const result = await startMercadoPagoPayment(raffle.id, selectedNumbers, reserveData);
 
       toast({
         title: "¡Redirigiendo a Mercado Pago!",
-        description: `Pago de $${totalAmount} por ${selectedNumbers.length} números`,
+        description: `Pago de $${result.amount} por ${selectedNumbers.length} números`,
       });
 
-      // Store in localStorage for checking payment status when user returns
-      localStorage.setItem('pending_payment', JSON.stringify({
-        raffleId: raffle.id,
-        numberIds: selectedNumbers,
-        preferenceId: result.preferenceId,
-        timestamp: Date.now()
-      }));
-
       // Redirigir a Mercado Pago
-      window.location.href = result.paymentLink;
-
-      setBulkDialogOpen(false);
-      setMultiSelectMode(false);
-      setSelectedNumbers([]);
-      setReserveData({ name: "", email: "", phone: "" });
-      onNumberUpdated();
-
+      window.location.href = result.payment_link;
     } catch (error: any) {
       console.error("Error al generar pago:", error);
       toast({
@@ -270,6 +186,8 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
         description: error.message || "No se pudo procesar el pago. Por favor intenta nuevamente.",
         variant: "destructive",
       });
+      onNumberUpdated();
+      setSubmitting(false);
     }
   };
 
@@ -280,41 +198,15 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
       return;
     }
 
+    setSubmitting(true);
     try {
-      const reservedUntil = new Date();
-      reservedUntil.setHours(reservedUntil.getHours() + 24);
-
       // Preparar URL de WhatsApp ANTES de la llamada async para evitar que Safari bloquee el popup
       const message = encodeURIComponent(
         `Hola! Soy ${reserveData.name}. Me interesa el número ${selectedNumber.number} de la rifa "${raffle.title}". Ya lo reservé en el talonario.`
       );
       const whatsappUrl = `https://wa.me/${raffle.whatsapp_number}?text=${message}`;
 
-      // Verificar que el número aún esté disponible antes de reservar
-      const { data: currentNumber } = await supabase
-        .from("raffle_numbers")
-        .select("status")
-        .eq("id", selectedNumber.id)
-        .single();
-
-      if (currentNumber?.status !== "available") {
-        throw new Error("Este número ya no está disponible");
-      }
-
-      const { error } = await supabase
-        .from("raffle_numbers")
-        .update({
-          status: "reserved",
-          buyer_name: reserveData.name,
-          buyer_email: reserveData.email || null,
-          buyer_phone: reserveData.phone || null,
-          reserved_at: new Date().toISOString(),
-          reserved_until: reservedUntil.toISOString(),
-        })
-        .eq("id", selectedNumber.id)
-        .eq("status", "available"); // Solo actualizar si aún está disponible
-
-      if (error) throw error;
+      await reserveNumbers(raffle.id, [selectedNumber.id], reserveData);
 
       toast({
         title: "¡Número reservado!",
@@ -335,6 +227,9 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
         description: error.message || "No se pudo reservar el número. Por favor intenta nuevamente.",
         variant: "destructive",
       });
+      onNumberUpdated();
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -345,79 +240,17 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
       return;
     }
 
+    setSubmitting(true);
     try {
-      if (!raffle.mercadopago_access_token) {
-        throw new Error("Mercado Pago no está configurado para este talonario");
-      }
-
-      // Verificar que el número aún esté disponible
-      const { data: currentNumber } = await supabase
-        .from("raffle_numbers")
-        .select("status")
-        .eq("id", selectedNumber.id)
-        .single();
-
-      if (currentNumber?.status !== "available") {
-        throw new Error("Este número ya no está disponible");
-      }
-
-      // Generar link de pago
-      const result = await createMercadoPagoPaymentLink({
-        accessToken: raffle.mercadopago_access_token,
-        title: `${raffle.title} - Número ${selectedNumber.number}`,
-        description: raffle.description,
-        price: raffle.price_per_number,
-        quantity: 1,
-        buyerEmail: reserveData.email,
-        buyerName: reserveData.name,
-        externalReference: `${raffle.id}-${selectedNumber.id}`,
-      });
-
-      if (!result.success || !result.paymentLink) {
-        throw new Error(result.error || "No se pudo generar el link de pago");
-      }
-
-      // Reservar el número con el payment link
-      const reservedUntil = new Date();
-      reservedUntil.setHours(reservedUntil.getHours() + 24);
-
-      const { error } = await supabase
-        .from("raffle_numbers")
-        .update({
-          status: "reserved",
-          buyer_name: reserveData.name,
-          buyer_email: reserveData.email || null,
-          buyer_phone: reserveData.phone || null,
-          reserved_at: new Date().toISOString(),
-          reserved_until: reservedUntil.toISOString(),
-          payment_link: result.paymentLink,
-          payment_id: result.preferenceId, // Store preference ID for tracking
-        })
-        .eq("id", selectedNumber.id)
-        .eq("status", "available");
-
-      if (error) throw error;
+      const result = await startMercadoPagoPayment(raffle.id, [selectedNumber.id], reserveData);
 
       toast({
         title: "¡Redirigiendo a Mercado Pago!",
         description: "Completa tu pago de forma segura",
       });
 
-      // Store in localStorage for checking payment status when user returns
-      localStorage.setItem('pending_payment', JSON.stringify({
-        raffleId: raffle.id,
-        numberId: selectedNumber.id,
-        preferenceId: result.preferenceId,
-        timestamp: Date.now()
-      }));
-
       // Redirigir a Mercado Pago
-      window.location.href = result.paymentLink;
-
-      setDialogOpen(false);
-      setReserveData({ name: "", email: "", phone: "" });
-      onNumberUpdated();
-
+      window.location.href = result.payment_link;
     } catch (error: any) {
       console.error("Error al generar pago:", error);
       toast({
@@ -425,6 +258,8 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
         description: error.message || "No se pudo procesar el pago. Por favor intenta nuevamente.",
         variant: "destructive",
       });
+      onNumberUpdated();
+      setSubmitting(false);
     }
   };
 
@@ -474,6 +309,10 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
           buyer_phone: null,
           reserved_at: null,
           reserved_until: null,
+          payment_id: null,
+          payment_status: null,
+          payment_link: null,
+          order_id: null,
         })
         .eq("id", selectedNumber.id);
 
@@ -496,7 +335,7 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
   };
 
   const handleOwnerUpdate = async () => {
-    const requireName = editStatus === "reserved" || editStatus === "sold";
+    const requireName = editStatus === "reserved" || editStatus === "paid" || editStatus === "sold";
     const errors = validateReserveData(reserveData, requireName);
     if (Object.keys(errors).length > 0) {
       setOwnerErrors(errors);
@@ -626,7 +465,8 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
               key={number.id}
               onClick={() => handleNumberClick(number)}
               disabled={(number.status === "sold" && !isOwner) || (raffle.status === "completed" && !isOwner) || (multiSelectMode && number.status !== "available")}
-              className={`aspect-square rounded-lg border-2 font-semibold text-sm flex items-center justify-center transition-all ${getNumberStyle(number.status, isOwner, raffle.status === "completed", isSelected)}`}
+              className={`aspect-square rounded-lg border-2 font-semibold text-sm flex items-center justify-center transition-all ${getNumberStyle(number.status, isOwner, raffle.status === "completed", isSelected)}${raffle.winning_number === number.number ? " ring-4 ring-yellow-400 ring-offset-2" : ""}`}
+              title={raffle.winning_number === number.number ? "Número ganador" : undefined}
             >
               {number.number}
             </button>
@@ -653,7 +493,7 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
           </DialogHeader>
 
           <div className="space-y-4">
-            {selectedNumber?.status === "reserved" && (
+            {isOwner && selectedNumber?.status === "reserved" && (
               <div className="p-4 bg-muted rounded-lg space-y-2">
                 <p className="text-sm font-semibold">Información de reserva:</p>
                 <p className="text-sm">Nombre: {selectedNumber.buyer_name}</p>
@@ -718,12 +558,12 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
                   </div>
                 </div>
 
-                {raffle.mercadopago_access_token ? (
+                {mpEnabled ? (
                   <div className="space-y-3">
                     <div className="flex gap-2">
                       <Button
                         onClick={handlePayWithMercadoPago}
-                        disabled={isSingleReserveNameInvalid}
+                        disabled={isSingleReserveNameInvalid || submitting}
                         className="flex-1 gap-2"
                       >
                         <CreditCard className="w-4 h-4" />
@@ -739,7 +579,7 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
                       </div>
                     </div>
                     <div className="flex gap-2">
-                      <Button onClick={handleReserve} disabled={isSingleReserveNameInvalid} variant="outline" className="flex-1">
+                      <Button onClick={handleReserve} disabled={isSingleReserveNameInvalid || submitting} variant="outline" className="flex-1">
                         Reservar 24hs
                       </Button>
                       <Button onClick={handleWhatsApp} variant="outline" className="flex-1 gap-2">
@@ -750,7 +590,7 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
                   </div>
                 ) : (
                   <div className="flex gap-2">
-                    <Button onClick={handleReserve} disabled={isSingleReserveNameInvalid} className="flex-1">
+                    <Button onClick={handleReserve} disabled={isSingleReserveNameInvalid || submitting} className="flex-1">
                       Reservar 24hs
                     </Button>
                     <Button onClick={handleWhatsApp} variant="outline" className="flex-1 gap-2">
@@ -793,11 +633,13 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
                   <p className="text-sm text-blue-700">
                     Este número fue pagado con Mercado Pago.
                   </p>
-                  <div className="text-sm space-y-1 text-blue-800">
-                    <p><strong>Comprador:</strong> {selectedNumber.buyer_name}</p>
-                    {selectedNumber.buyer_email && <p><strong>Email:</strong> {selectedNumber.buyer_email}</p>}
-                    {selectedNumber.buyer_phone && <p><strong>Teléfono:</strong> {selectedNumber.buyer_phone}</p>}
-                  </div>
+                  {isOwner && (
+                    <div className="text-sm space-y-1 text-blue-800">
+                      <p><strong>Comprador:</strong> {selectedNumber.buyer_name}</p>
+                      {selectedNumber.buyer_email && <p><strong>Email:</strong> {selectedNumber.buyer_email}</p>}
+                      {selectedNumber.buyer_phone && <p><strong>Teléfono:</strong> {selectedNumber.buyer_phone}</p>}
+                    </div>
+                  )}
                 </div>
 
                 {!isOwner && (
@@ -989,11 +831,11 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
               )}
             </div>
 
-            {raffle.mercadopago_access_token ? (
+            {mpEnabled ? (
               <div className="space-y-3 pt-4">
                 <Button
                   onClick={handleBulkPayWithMercadoPago}
-                  disabled={isBulkReserveNameInvalid}
+                  disabled={isBulkReserveNameInvalid || submitting}
                   className="w-full gap-2"
                 >
                   <CreditCard className="w-4 h-4" />
@@ -1008,7 +850,7 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <Button onClick={handleConfirmBulkReserve} disabled={isBulkReserveNameInvalid} variant="outline" className="flex-1">
+                  <Button onClick={handleConfirmBulkReserve} disabled={isBulkReserveNameInvalid || submitting} variant="outline" className="flex-1">
                     Reservar y contactar
                   </Button>
                   <Button onClick={() => setBulkDialogOpen(false)} variant="outline">
@@ -1018,7 +860,7 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
               </div>
             ) : (
               <div className="flex gap-2 pt-4">
-                <Button onClick={handleConfirmBulkReserve} disabled={isBulkReserveNameInvalid} className="flex-1">
+                <Button onClick={handleConfirmBulkReserve} disabled={isBulkReserveNameInvalid || submitting} className="flex-1">
                   Reservar y contactar
                 </Button>
                 <Button onClick={() => setBulkDialogOpen(false)} variant="outline">

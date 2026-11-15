@@ -14,11 +14,47 @@ export type Database = {
   }
   public: {
     Tables: {
+      payment_orders: {
+        Row: {
+          amount: number
+          buyer_email: string | null
+          buyer_name: string
+          buyer_phone: string | null
+          created_at: string
+          currency: string
+          fee_amount: number
+          id: string
+          mp_payment_id: string | null
+          number_ids: string[]
+          preference_id: string | null
+          raffle_id: string
+          resolved_at: string | null
+          status: string
+          status_detail: string | null
+          updated_at: string
+        }
+        Insert: {
+          [_ in never]: never
+        }
+        Update: {
+          [_ in never]: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_orders_raffle_id_fkey"
+            columns: ["raffle_id"]
+            isOneToOne: false
+            referencedRelation: "raffles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           created_at: string
           full_name: string
           id: string
+          mp_connected: boolean
           phone: string | null
         }
         Insert: {
@@ -43,6 +79,10 @@ export type Database = {
           created_at: string
           id: string
           number: number
+          order_id: string | null
+          payment_id: string | null
+          payment_link: string | null
+          payment_status: string | null
           raffle_id: string
           reserved_at: string | null
           reserved_until: string | null
@@ -69,6 +109,10 @@ export type Database = {
           created_at?: string
           id?: string
           number?: number
+          order_id?: string | null
+          payment_id?: string | null
+          payment_link?: string | null
+          payment_status?: string | null
           raffle_id?: string
           reserved_at?: string | null
           reserved_until?: string | null
@@ -89,7 +133,10 @@ export type Database = {
         Row: {
           created_at: string
           description: string
+          draw_date: string | null
+          drawn_at: string | null
           id: string
+          image_url: string | null
           price_per_number: number
           status: Database["public"]["Enums"]["raffle_status"]
           title: string
@@ -97,11 +144,15 @@ export type Database = {
           updated_at: string
           user_id: string
           whatsapp_number: string
+          winner_display_name: string | null
+          winning_number: number | null
         }
         Insert: {
           created_at?: string
           description: string
+          draw_date?: string | null
           id?: string
+          image_url?: string | null
           price_per_number: number
           status?: Database["public"]["Enums"]["raffle_status"]
           title: string
@@ -113,7 +164,9 @@ export type Database = {
         Update: {
           created_at?: string
           description?: string
+          draw_date?: string | null
           id?: string
+          image_url?: string | null
           price_per_number?: number
           status?: Database["public"]["Enums"]["raffle_status"]
           title?: string
@@ -137,10 +190,43 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      disconnect_mercadopago: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
+      draw_raffle_winner: {
+        Args: { p_raffle_id: string }
+        Returns: Database["public"]["Tables"]["raffles"]["Row"]
+      }
+      get_my_mp_connection: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          connected: boolean
+          mp_user_id: string | null
+          connected_at: string
+        }[]
+      }
+      get_raffle_numbers_for_owner: {
+        Args: { p_raffle_id: string }
+        Returns: Database["public"]["Tables"]["raffle_numbers"]["Row"][]
+      }
+      resolve_payment_conflict: {
+        Args: { p_order_id: string }
+        Returns: undefined
+      }
+      reserve_numbers: {
+        Args: {
+          p_raffle_id: string
+          p_number_ids: string[]
+          p_buyer_name: string
+          p_buyer_email?: string | null
+          p_buyer_phone?: string | null
+        }
+        Returns: string
+      }
     }
     Enums: {
-      number_status: "available" | "reserved" | "sold"
+      number_status: "available" | "reserved" | "paid" | "sold"
       raffle_status: "active" | "completed" | "cancelled"
     }
     CompositeTypes: {
@@ -269,7 +355,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      number_status: ["available", "reserved", "sold"],
+      number_status: ["available", "reserved", "paid", "sold"],
       raffle_status: ["active", "completed", "cancelled"],
     },
   },
