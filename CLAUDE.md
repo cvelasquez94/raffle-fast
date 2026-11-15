@@ -40,6 +40,11 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck, tests and build on pull re
 
 Frontend (`.env` / `.env.local`, see `.env.example`): `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`. No Mercado Pago values live in the frontend.
 
+Optional frontend variables (empty by default):
+- `VITE_GA_MEASUREMENT_ID` — Google Analytics 4 measurement ID; GA4 is loaded only if set
+- `VITE_META_PIXEL_ID` — Meta Pixel ID; the pixel is loaded only if set
+- `VITE_SITE_URL` — public site URL without trailing slash, used at build time for the absolute `og:url` / `og:image` / canonical tags in `index.html` (falls back to Vercel's `VERCEL_PROJECT_PRODUCTION_URL`; see the `site-url` plugin in `vite.config.ts`)
+
 Edge Function secrets (set in Supabase, not in Vite):
 - `MP_CLIENT_ID`, `MP_CLIENT_SECRET` — Mercado Pago marketplace app
 - `MP_REDIRECT_URI` — URL of the `mp-oauth-callback` function (must match the MP app config)
@@ -115,6 +120,18 @@ The migrations were checked against an in-memory Postgres (PGlite), which has no
 
 `RaffleView.handleGenerateShareImage` draws the number grid to a `<canvas>` by hand (no library) and shares it via the Web Share API with a download fallback.
 
+### Analytics (off by default)
+
+`src/lib/analytics.ts` is the only place that talks to GA4 / Meta Pixel; nothing loads unless the env vars above are set. `AnalyticsTracker` (mounted inside `BrowserRouter` in `App.tsx`) sends a page view on each route change (pathname only, plus a sanitized `ref` param). Funnel events go through `track(event, params)`: `sign_up` (Auth; Google sign-ups are detected in Dashboard), `raffle_created` (CreateRaffle), `share_clicked` (RaffleView), `reservation_made` and `payment_started` (inside `src/lib/payments.ts`), `landing_cta_clicked`, `promo_footer_clicked`. **Never put personal data (names, emails, phones) in event params.**
+
+### Link previews (Open Graph)
+
+Social crawlers don't run JavaScript. `vercel.json` rewrites `/raffle/:id` requests whose User-Agent matches a known crawler to the Vercel Edge Function `api/raffle-preview.ts`, which returns a small HTML document with that raffle's Open Graph/Twitter tags (read from Supabase REST with the anon key: `title, description, price_per_number, status` only, all values HTML-escaped). Everyone else gets the SPA; `?_spa=1` bypasses the rewrite. The function reads `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY` from the Vercel environment. Default social image: `public/og-image.png` (1200x630).
+
+### Legal pages and footer
+
+`/terminos` and `/privacidad` (`src/pages/Terminos.tsx`, `src/pages/Privacidad.tsx`, shared `LegalLayout`) are **drafts pending lawyer review** with `[PLACEHOLDERS]` for company details — don't fill those with guesses. Update the privacy policy when the data collected or third-party providers change. `SiteFooter` links both pages; with `showPromo` (non-owners on `RaffleView`) it also shows the "Creá tu rifa gratis" link to `/?ref=raffle`.
+
 ## Conventions
 
 - `@/` aliases `src/`.
@@ -124,4 +141,4 @@ The migrations were checked against an in-memory Postgres (PGlite), which has no
 
 ## Deployment
 
-Vercel; `vercel.json` rewrites all paths to `index.html` for SPA routing (`public/_redirects` does the same for Netlify-style hosts). See `DEPLOYMENT.md`. Topic-specific guides live at the repo root (`PAYMENT_FLOW.md`, `MERCADOPAGO_OAUTH_SETUP.md`, `TESTING_PAYMENTS.md`, `PAID_STATUS_GUIDE.md`).
+Vercel; `vercel.json` rewrites all paths to `index.html` for SPA routing (after the crawler rewrite described under "Link previews") (`public/_redirects` does the same for Netlify-style hosts). See `DEPLOYMENT.md`. Topic-specific guides live at the repo root (`PAYMENT_FLOW.md`, `MERCADOPAGO_OAUTH_SETUP.md`, `TESTING_PAYMENTS.md`, `PAID_STATUS_GUIDE.md`).

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,6 +8,7 @@ import { Navbar } from "@/components/Navbar";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Ticket } from "lucide-react";
+import { track, markPendingOAuthSignUp } from "@/lib/analytics";
 
 import { isValidEmail, isValidPhone } from "@/lib/validation";
 
@@ -89,7 +90,7 @@ const Auth = () => {
 
         if (error) throw error;
 
-        console.log("SignUp response:", data);
+        track("sign_up", { method: "email" });
 
         // Verificar si se requiere confirmación de email
         if (data.user && !data.user.confirmed_at && !data.session) {
@@ -158,6 +159,7 @@ const Auth = () => {
   const handleGoogleSignIn = async () => {
     setLoading(true);
     try {
+      markPendingOAuthSignUp();
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
@@ -315,6 +317,20 @@ const Auth = () => {
               <Button type="submit" className="w-full" disabled={isSubmitDisabled()}>
                 {loading ? "Procesando..." : isSignUp ? "Crear Cuenta" : "Iniciar Sesión"}
               </Button>
+
+              {isSignUp && (
+                <p className="text-xs text-muted-foreground text-center">
+                  Al registrarte aceptás los{" "}
+                  <Link to="/terminos" className="text-primary hover:underline">
+                    Términos y condiciones
+                  </Link>{" "}
+                  y la{" "}
+                  <Link to="/privacidad" className="text-primary hover:underline">
+                    Política de privacidad
+                  </Link>
+                  .
+                </p>
+              )}
 
               <div className="text-center text-sm">
                 <button

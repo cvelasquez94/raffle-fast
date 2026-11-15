@@ -12,6 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft } from "lucide-react";
 import { isValidDateString, removeRaffleImage, todayDateString, uploadRaffleImage } from "@/lib/raffles";
+import { track } from "@/lib/analytics";
 
 import { isValidWhatsApp } from "@/lib/validation";
 
@@ -123,6 +124,8 @@ const CreateRaffle = () => {
         .single();
 
       if (error) throw error;
+
+      track("raffle_created", { raffle_id: raffle.id, total_numbers: raffle.total_numbers });
 
       toast({
         title: "¡Talonario creado!",

@@ -79,6 +79,30 @@ Después de agregar las variables de entorno:
 2. Intenta reservar un número
 3. ✅ Debería funcionar
 
+### Prueba 5: Vista previa de links (WhatsApp / Facebook / X)
+
+Los crawlers de redes sociales no ejecutan JavaScript. `vercel.json` les envía los pedidos a `/raffle/:id` a la función `api/raffle-preview.ts`, que responde con los meta tags del talonario. Usa las mismas variables `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY` ya configuradas (deben estar disponibles en el entorno de Production, no solo en el build).
+
+```bash
+# Debe devolver HTML con og:title = título del talonario
+curl -s -A "facebookexternalhit/1.1" https://TU-DOMINIO/raffle/ID-DE-UN-TALONARIO | grep "og:"
+
+# Sin User-Agent de crawler debe devolver la app (index.html)
+curl -s https://TU-DOMINIO/raffle/ID-DE-UN-TALONARIO | grep "<div id=\"root\">"
+```
+
+También podés validar con el [Sharing Debugger de Facebook](https://developers.facebook.com/tools/debug/) o pegando el link en un chat de WhatsApp.
+
+### Variables opcionales
+
+| Variable | Para qué |
+|----------|----------|
+| `VITE_GA_MEASUREMENT_ID` | Activa Google Analytics 4 (formato `G-XXXXXXXXXX`). Vacía = desactivado. |
+| `VITE_META_PIXEL_ID` | Activa el Meta Pixel. Vacía = desactivado. |
+| `VITE_SITE_URL` | URL pública sin barra final, para `og:url` / `og:image` / canonical de la home. Si falta, se usa el dominio de producción de Vercel. Definila si usás un dominio propio. |
+
+Son variables de build: hay que re-deployar después de cambiarlas.
+
 ## 🐛 Troubleshooting
 
 ### Problema: 404 en rutas directas
