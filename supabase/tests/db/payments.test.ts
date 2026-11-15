@@ -125,6 +125,16 @@ describe("apply_order_payment", () => {
     expect(await t.numberRow(numbers[0])).toMatchObject({ status: "reserved", buyer_name: "Primera Orden", order_id: first });
   });
 
+  it("needs the numbers linked to the order: an unlinked reservation by the same buyer is a conflict", async () => {
+    // Por esto mp-create-payment aborta si no puede guardar order_id en los números.
+    const numbers = [t.ids[13]];
+    await t.admin(`SELECT reserve_numbers_internal($1, $2::uuid[], 'Sin Vinculo', null, null, null)`, [t.raffleId, numbers]);
+    const order = await t.createOrder(numbers, "Sin Vinculo", { reserve: false });
+
+    expect(await t.applyPayment(order, "893", "approved")).toBe("conflict");
+    expect(await t.numberRow(numbers[0])).toMatchObject({ status: "reserved", order_id: null });
+  });
+
   it("does not overwrite a number the owner already marked as sold", async () => {
     const numbers = [t.ids[12]];
     const order = await t.createOrder(numbers, "Pagador Cinco");

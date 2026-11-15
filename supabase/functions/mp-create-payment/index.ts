@@ -16,6 +16,8 @@ import {
 } from "../_shared/mp.ts";
 import { computeOrderAmounts, UUID_RE } from "../_shared/logic.ts";
 
+const PREFERENCE_ERROR = "No se pudo generar el link de pago. Probá de nuevo o reservá por WhatsApp.";
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -88,79 +90,102 @@ serve(async (req) => {
       throw orderError;
     }
 
-    await admin
-      .from("raffle_numbers")
-      .update({ order_id: order.id })
-      .in("id", numberIds)
-      .eq("status", "reserved");
-
-    // 3. Crear la preferencia en Mercado Pago con el token del organizador.
-    const { data: numberRows } = await admin
-      .from("raffle_numbers")
-      .select("number")
-      .in("id", numberIds)
-      .order("number");
-    const numbersList = (numberRows ?? []).map((n) => n.number).join(", ");
-
+    // Desde acá, cualquier falla tiene que liberar los números y cancelar la
+    // orden: si no, quedarían reservados 24 horas sin que nadie pueda pagarlos.
     // deno-lint-ignore no-explicit-any
-    const preference: any = {
-      items: [
-        {
-          title: quantity === 1 ? `${raffle.title} - Número ${numbersList}` : `${raffle.title} - ${quantity} números`,
-          description: `Números: ${numbersList}`,
-          quantity,
-          unit_price: unitPrice,
-          currency_id: "ARS",
-        },
-      ],
-      external_reference: order.id,
-      notification_url: `${Deno.env.get("SUPABASE_URL")}/functions/v1/mp-webhook?order=${order.id}`,
-      payment_methods: { installments: 1 },
-      statement_descriptor: String(raffle.title).substring(0, 22),
-      // La preferencia vence junto con la reserva.
-      expires: true,
-      expiration_date_to: new Date(reservedUntil as string).toISOString().replace("Z", "+00:00"),
-    };
+    let mpData: any;
+    try {
+      // Sin este vínculo apply_order_payment no reconoce los números como de
+      // esta orden y un pago aprobado terminaría en "conflict".
+      const { data: linked, error: linkError } = await admin
+        .from("raffle_numbers")
+        .update({ order_id: order.id })
+        .in("id", numberIds)
+        .eq("status", "reserved")
+        .select("id");
 
-    if (fee > 0) {
-      preference.marketplace_fee = fee;
-    }
+      if (linkError) throw linkError;
+      if ((linked ?? []).length !== numberIds.length) {
+        throw new Error(`Linked ${(linked ?? []).length} of ${numberIds.length} numbers to order ${order.id}`);
+      }
 
-    if (buyerEmail) {
-      preference.payer = { email: buyerEmail, name: buyerName };
-    }
+      // 3. Crear la preferencia en Mercado Pago con el token del organizador.
+      const { data: numberRows } = await admin
+        .from("raffle_numbers")
+        .select("number")
+        .in("id", numberIds)
+        .order("number");
+      const numbersList = (numberRows ?? []).map((n) => n.number).join(", ");
 
-    // Mercado Pago rechaza auto_return con back_urls que no sean https (localhost).
-    const base = appUrl();
-    if (base.startsWith("https://")) {
-      preference.back_urls = {
-        success: `${base}/raffle/${raffleId}?payment=success`,
-        failure: `${base}/raffle/${raffleId}?payment=failure`,
-        pending: `${base}/raffle/${raffleId}?payment=pending`,
+      // deno-lint-ignore no-explicit-any
+      const preference: any = {
+        items: [
+          {
+            title: quantity === 1 ? `${raffle.title} - Número ${numbersList}` : `${raffle.title} - ${quantity} números`,
+            description: `Números: ${numbersList}`,
+            quantity,
+            unit_price: unitPrice,
+            currency_id: "ARS",
+          },
+        ],
+        external_reference: order.id,
+        notification_url: `${Deno.env.get("SUPABASE_URL")}/functions/v1/mp-webhook?order=${order.id}`,
+        payment_methods: { installments: 1 },
+        statement_descriptor: String(raffle.title).substring(0, 22),
+        // La preferencia vence junto con la reserva.
+        expires: true,
+        expiration_date_to: new Date(reservedUntil as string).toISOString().replace("Z", "+00:00"),
       };
-      preference.auto_return = "approved";
-    }
 
-    const mpResponse = await fetch(`${MP_API}/checkout/preferences`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify(preference),
-    });
+      if (fee > 0) {
+        preference.marketplace_fee = fee;
+      }
 
-    if (!mpResponse.ok) {
-      console.error("MP preference failed:", mpResponse.status, await mpResponse.text());
+      if (buyerEmail) {
+        preference.payer = { email: buyerEmail, name: buyerName };
+      }
+
+      // Mercado Pago rechaza auto_return con back_urls que no sean https (localhost).
+      const base = appUrl();
+      if (base.startsWith("https://")) {
+        preference.back_urls = {
+          success: `${base}/raffle/${raffleId}?payment=success`,
+          failure: `${base}/raffle/${raffleId}?payment=failure`,
+          pending: `${base}/raffle/${raffleId}?payment=pending`,
+        };
+        preference.auto_return = "approved";
+      }
+
+      const mpResponse = await fetch(`${MP_API}/checkout/preferences`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(preference),
+      });
+
+      if (!mpResponse.ok) {
+        console.error("MP preference failed:", mpResponse.status, await mpResponse.text());
+        throw new UserError(PREFERENCE_ERROR, 502);
+      }
+
+      mpData = await mpResponse.json();
+      if (!mpData?.id || !mpData?.init_point) {
+        console.error("MP preference without id/init_point:", mpData);
+        throw new UserError(PREFERENCE_ERROR, 502);
+      }
+    } catch (error) {
       await releaseNumbers(admin, numberIds, order.id);
-      await admin
+      // Por si falló el vínculo y quedaron reservados sin orden.
+      await releaseNumbers(admin, numberIds, null);
+      const { error: cancelError } = await admin
         .from("payment_orders")
         .update({ status: "cancelled", status_detail: "preference_failed", updated_at: new Date().toISOString() })
         .eq("id", order.id);
-      throw new UserError("No se pudo generar el link de pago. Probá de nuevo o reservá por WhatsApp.", 502);
+      if (cancelError) console.error("Failed to cancel order:", cancelError);
+      throw error;
     }
-
-    const mpData = await mpResponse.json();
 
     await admin
       .from("payment_orders")
