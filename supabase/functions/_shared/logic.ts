@@ -23,10 +23,11 @@ export function firstForwardedIp(forwardedFor: string | null | undefined): strin
 
 /**
  * Comisión de la plataforma, en porcentaje sobre el total cobrado.
- * `raw` es el valor de MP_MARKETPLACE_FEE_PERCENT: sin definir vale 5;
- * un valor inválido o fuera de [0, 100) vale 0.
+ * `raw` es platform_settings.marketplace_fee_percent o, si esa fila no se
+ * pudo leer, MP_MARKETPLACE_FEE_PERCENT: sin definir vale 5; un valor
+ * inválido o fuera de [0, 100) vale 0.
  */
-export function parseFeePercent(raw: string | null | undefined): number {
+export function parseFeePercent(raw: string | number | null | undefined): number {
   const value = Number(raw ?? "5");
   return Number.isFinite(value) && value >= 0 && value < 100 ? value : 0;
 }
@@ -59,8 +60,11 @@ export function tokenNeedsRefresh(expiresAt: string | null | undefined, now: num
 
 /**
  * Decide qué estado aplicar a una orden a partir de un pago leído de la API
- * de Mercado Pago. Un pago "approved" solo vale si es en ARS y cubre el
- * total de la orden; si no, se registra como rechazado (`amount_mismatch`).
+ * de Mercado Pago. Devuelve el estado del pago, salvo en dos casos en los que
+ * hay plata cobrada y el organizador tiene que intervenir:
+ *   - 'amount_mismatch': aprobado, pero no en ARS o por menos que la orden.
+ *   - 'partially_refunded': aprobado con una devolución parcial.
+ * La función SQL apply_order_payment convierte ambos en un conflicto.
  * Lanza UserError si el pago es de otra orden.
  */
 export function resolvePaymentOutcome(
@@ -78,7 +82,10 @@ export function resolvePaymentOutcome(
   if (status === "approved") {
     const paid = Number(payment.transaction_amount);
     if (payment.currency_id !== "ARS" || !(paid >= Number(order.amount))) {
-      return { status: "rejected", detail: "amount_mismatch", mismatch: true };
+      return { status: "amount_mismatch", detail: "amount_mismatch", mismatch: true };
+    }
+    if (detail === "partially_refunded" || Number(payment.transaction_amount_refunded) > 0) {
+      return { status: "partially_refunded", detail: "partially_refunded", mismatch: false };
     }
   }
 

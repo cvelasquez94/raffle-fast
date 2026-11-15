@@ -49,7 +49,7 @@ Edge Function secrets (set in Supabase, not in Vite):
 - `MP_CLIENT_ID`, `MP_CLIENT_SECRET` — Mercado Pago marketplace app
 - `MP_REDIRECT_URI` — URL of the `mp-oauth-callback` function (must match the MP app config)
 - `APP_URL` — public frontend URL, used for redirects and MP `back_urls`
-- `MP_MARKETPLACE_FEE_PERCENT` — platform commission on online payments (default `5`)
+- `MP_MARKETPLACE_FEE_PERCENT` — fallback only; the commission is read from `platform_settings` (see Mercado Pago flow)
 
 ## Architecture
 
@@ -100,7 +100,12 @@ Money goes straight to the organizer's MP account; the platform takes `marketpla
 1. **Connect** — `MercadoPagoConnect.tsx` calls `mp-oauth-start` (requires login), which stores a one-time `state` in `mp_oauth_states` and returns the MP authorization URL. `mp-oauth-callback` consumes the state, exchanges the code and upserts `mp_credentials`; a trigger mirrors it to `profiles.mp_connected`, which is what the buyer UI checks to show the pay button.
 2. **Pay** — `NumberGrid` → `startMercadoPagoPayment()` → `mp-create-payment`: reserves the numbers, inserts a `payment_orders` row (amount computed from the DB price), creates the Checkout preference with the organizer's token (`external_reference = order.id`, `notification_url = mp-webhook?order=<id>`, expiring with the reservation) and returns the `init_point`. The order id is kept in `localStorage` (`pending_payment`).
 3. **Confirm** — `mp-webhook` receives MP's notification, fetches the payment from the MP API (never trusts the request body), checks reference and amount, and calls the `apply_order_payment` SQL function, which marks the numbers `paid`. `mp-verify-payment` does the same on demand; `RaffleView.checkPendingPayment()` calls it when the buyer returns, as a fallback.
-4. Order status `conflict` means money was received but a number had already gone to someone else; the organizer must refund or reassign. `RaffleView` lists unresolved conflicts to the owner (read from `payment_orders`) and "Marcar como resuelto" calls the `resolve_payment_conflict(p_order_id)` RPC, which sets `payment_orders.resolved_at` (the status stays `conflict`).
+4. Order status `conflict` means money is involved and the organizer must act; `status_detail` says why: NULL (a number had already gone to someone else), `raffle_closed`, `amount_mismatch`, `partially_refunded`, `refunded_needs_review`, `charged_back_needs_review`. `RaffleView` lists unresolved conflicts to the owner (read from `payment_orders`, reason text in `conflictReasonText`) and "Marcar como resuelto" calls the `resolve_payment_conflict(p_order_id)` RPC, which sets `payment_orders.resolved_at` (the status stays `conflict`).
+5. Refunds and chargebacks arrive through the same webhook. For an approved order on an active raffle, numbers still `paid` by that order go back to `available` and the order becomes `refunded` (final). If a number was already confirmed `sold` or the raffle is closed, nothing is touched and the order becomes a conflict for the owner to review.
+
+**Commission**: the platform fee lives in the single-row `platform_settings.marketplace_fee_percent` table (public read, no client writes). `mp-create-payment` reads it for `marketplace_fee` and `MercadoPagoConnect` shows it to the organizer (`src/lib/platform.ts`). Change it with `UPDATE platform_settings SET marketplace_fee_percent = …`; the `MP_MARKETPLACE_FEE_PERCENT` secret is only a fallback if that row can't be read.
+
+**Disconnecting**: `disconnect_mercadopago()` sets `mp_credentials.disconnected_at` (so `profiles.mp_connected` goes false and no new payments start) but keeps the token for 3 days so in-flight payments can still be verified; `clean_expired_reservations()` deletes it afterwards. `getSellerAccessToken()` ignores disconnected credentials unless called with `includeDisconnected` (webhook/verify).
 
 Things to know:
 - `mp-oauth-callback` and `mp-webhook` must be deployed with JWT verification off (`supabase/config.toml`).

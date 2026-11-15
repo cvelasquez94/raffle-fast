@@ -156,7 +156,7 @@ describe("resolvePaymentOutcome", () => {
 
   it("compares numerically when the order amount comes as a string (NUMERIC column)", () => {
     expect(resolvePaymentOutcome({ id: ORDER_ID, amount: "200.00" }, approved).status).toBe("approved");
-    expect(resolvePaymentOutcome({ id: ORDER_ID, amount: "1000" }, { ...approved, transaction_amount: 200 }).status).toBe("rejected");
+    expect(resolvePaymentOutcome({ id: ORDER_ID, amount: "1000" }, { ...approved, transaction_amount: 200 }).status).toBe("amount_mismatch");
   });
 
   it.each([
@@ -165,12 +165,27 @@ describe("resolvePaymentOutcome", () => {
     ["a non-numeric amount", { transaction_amount: "abc" }],
     ["another currency", { currency_id: "USD" }],
     ["a missing currency", { currency_id: undefined }],
-  ])("turns an approved payment with %s into a rejection", (_label, override) => {
+  ])("flags an approved payment with %s as an amount mismatch", (_label, override) => {
     expect(resolvePaymentOutcome(order, { ...approved, ...override })).toEqual({
-      status: "rejected",
+      status: "amount_mismatch",
       detail: "amount_mismatch",
       mismatch: true,
     });
+  });
+
+  it.each([
+    ["the partially_refunded detail", { status_detail: "partially_refunded" }],
+    ["a refunded amount", { transaction_amount_refunded: 50 }],
+  ])("flags an approved payment with %s as partially refunded", (_label, override) => {
+    expect(resolvePaymentOutcome(order, { ...approved, ...override })).toEqual({
+      status: "partially_refunded",
+      detail: "partially_refunded",
+      mismatch: false,
+    });
+  });
+
+  it("does not treat a zero refunded amount as a partial refund", () => {
+    expect(resolvePaymentOutcome(order, { ...approved, transaction_amount_refunded: 0 }).status).toBe("approved");
   });
 
   it("throws a UserError when the payment belongs to another order", () => {
@@ -180,7 +195,7 @@ describe("resolvePaymentOutcome", () => {
     expect(() => resolvePaymentOutcome(order, { ...approved, external_reference: undefined })).toThrow(UserError);
   });
 
-  it.each(["pending", "in_process", "rejected", "cancelled", "refunded"])(
+  it.each(["pending", "in_process", "rejected", "cancelled", "refunded", "charged_back"])(
     "passes a %s payment through without checking the amount",
     (status) => {
       const payment = { ...approved, status, status_detail: "detail", transaction_amount: 1 };

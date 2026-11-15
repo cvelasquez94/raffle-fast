@@ -86,16 +86,22 @@ describe("raffle owner", () => {
     });
   });
 
-  it("disconnects Mercado Pago: credentials are deleted and mp_connected goes false", async () => {
+  it("disconnects Mercado Pago: mp_connected goes false, the token is kept for payments in flight", async () => {
     await t.q(`SELECT disconnect_mercadopago()`);
 
-    expect(await t.admin(`SELECT count(*)::int AS c FROM mp_credentials`)).toEqual([{ c: 0 }]);
+    const [creds] = await t.admin(`SELECT access_token, disconnected_at FROM mp_credentials WHERE user_id = $1`, [OWNER_ID]);
+    expect(creds.access_token).toBe("SECRET");
+    expect(creds.disconnected_at).not.toBeNull();
     expect((await t.admin(`SELECT mp_connected FROM profiles WHERE id = $1`, [OWNER_ID]))[0].mp_connected).toBe(false);
     expect(await t.q(`SELECT * FROM get_my_mp_connection()`)).toEqual([]);
   });
 
   it("gets mp_connected back when credentials are stored again (OAuth callback)", async () => {
-    await t.admin(`INSERT INTO mp_credentials (user_id, access_token) VALUES ($1, 'NEW')`, [OWNER_ID]);
+    await t.admin(
+      `INSERT INTO mp_credentials (user_id, access_token) VALUES ($1, 'NEW')
+       ON CONFLICT (user_id) DO UPDATE SET access_token = 'NEW', disconnected_at = NULL`,
+      [OWNER_ID],
+    );
     expect((await t.admin(`SELECT mp_connected FROM profiles WHERE id = $1`, [OWNER_ID]))[0].mp_connected).toBe(true);
     expect((await t.admin(`SELECT mp_connected FROM profiles WHERE id = $1`, [OTHER_USER_ID]))[0].mp_connected).toBe(false);
   });

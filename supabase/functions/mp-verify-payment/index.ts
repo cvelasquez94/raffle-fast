@@ -30,7 +30,7 @@ serve(async (req) => {
     if (!context) throw new UserError("Orden inexistente", 404);
 
     // Ya resuelta por el webhook.
-    if (context.order.status === "approved" || context.order.status === "conflict") {
+    if (["approved", "conflict", "refunded"].includes(context.order.status)) {
       return json({ status: context.order.status });
     }
     if (!context.accessToken) {

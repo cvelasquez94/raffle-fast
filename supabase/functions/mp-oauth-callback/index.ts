@@ -71,6 +71,7 @@ serve(async (req) => {
       expires_at: expiresAtFrom(tokenData.expires_in),
       connected_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
+      disconnected_at: null,
     });
 
     if (upsertError) throw upsertError;
