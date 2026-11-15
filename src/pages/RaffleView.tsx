@@ -8,13 +8,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Navbar } from "@/components/Navbar";
 import { NumberGrid } from "@/components/NumberGrid";
 import { RaffleAdmin } from "@/components/RaffleAdmin";
+import { RaffleImageInput } from "@/components/RaffleImageInput";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Share2, ArrowLeft, Pencil, CheckCircle2, Image, Download, MessageCircle, Instagram, Facebook } from "lucide-react";
+import { Loader2, Share2, ArrowLeft, Pencil, CheckCircle2, Image, Download, MessageCircle, Instagram, Facebook, Trophy, CalendarDays, AlertTriangle } from "lucide-react";
 import { clearPendingOrder, getPendingOrder, verifyOrderPayment } from "@/lib/payments";
+import { formatDrawDate, formatDrawnAt, isValidDateString, removeRaffleImage, todayDateString, uploadRaffleImage } from "@/lib/raffles";
 
 const isValidWhatsApp = (number: string) => /^\+\d{10,15}$/.test(number);
 
@@ -36,7 +39,14 @@ const RaffleView = () => {
     description: "",
     price_per_number: "",
     whatsapp_number: "",
+    draw_date: "",
+    image_url: "",
   });
+  const [editImageFile, setEditImageFile] = useState<File | null>(null);
+  const [drawDialogOpen, setDrawDialogOpen] = useState(false);
+  const [drawing, setDrawing] = useState(false);
+  const [conflicts, setConflicts] = useState<any[]>([]);
+  const [resolvingConflictId, setResolvingConflictId] = useState<string | null>(null);
   const [shareImageDialogOpen, setShareImageDialogOpen] = useState(false);
   const [shareImageUrl, setShareImageUrl] = useState<string>("");
   const [generatingImage, setGeneratingImage] = useState(false);
@@ -144,6 +154,22 @@ const RaffleView = () => {
 
       if (numbersError) throw numbersError;
       setNumbers(numbersData || []);
+
+      // Pagos cobrados cuyo número ya tenía otra persona: solo los ve el dueño.
+      if (owner) {
+        const { data: conflictData, error: conflictError } = await supabase
+          .from("payment_orders")
+          .select("id, created_at, amount, buyer_name, buyer_email, buyer_phone, number_ids, mp_payment_id")
+          .eq("raffle_id", id)
+          .eq("status", "conflict")
+          .is("resolved_at", null)
+          .order("created_at");
+
+        if (conflictError) console.error("Error al cargar pagos en conflicto:", conflictError);
+        setConflicts(conflictData || []);
+      } else {
+        setConflicts([]);
+      }
     } catch (error: any) {
       toast({
         title: "Error",
@@ -187,7 +213,10 @@ const RaffleView = () => {
       description: raffle.description,
       price_per_number: raffle.price_per_number.toString(),
       whatsapp_number: raffle.whatsapp_number,
+      draw_date: raffle.draw_date || "",
+      image_url: raffle.image_url || "",
     });
+    setEditImageFile(null);
     setEditErrors({});
     setEditDialogOpen(true);
   };
@@ -218,6 +247,14 @@ const RaffleView = () => {
       errors.whatsapp_number = "El número debe incluir código de país, ej: +5491112345678";
     }
 
+    if (editData.draw_date) {
+      if (!isValidDateString(editData.draw_date)) {
+        errors.draw_date = "La fecha del sorteo no es válida";
+      } else if (editData.draw_date !== raffle.draw_date && editData.draw_date < todayDateString()) {
+        errors.draw_date = "La fecha del sorteo no puede ser anterior a hoy";
+      }
+    }
+
     setEditErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -228,7 +265,14 @@ const RaffleView = () => {
     }
 
     setSavingEdit(true);
+    const previousImageUrl: string | null = raffle.image_url || null;
+    let uploadedImageUrl: string | null = null;
     try {
+      if (editImageFile) {
+        uploadedImageUrl = await uploadRaffleImage(raffle.user_id, editImageFile);
+      }
+      const newImageUrl = uploadedImageUrl || editData.image_url || null;
+
       const { error } = await supabase
         .from("raffles")
         .update({
@@ -236,10 +280,17 @@ const RaffleView = () => {
           description: editData.description,
           price_per_number: parseFloat(editData.price_per_number),
           whatsapp_number: editData.whatsapp_number,
+          draw_date: editData.draw_date || null,
+          image_url: newImageUrl,
         })
         .eq("id", id);
 
       if (error) throw error;
+
+      // La imagen anterior ya no se usa.
+      if (previousImageUrl && previousImageUrl !== newImageUrl) {
+        removeRaffleImage(previousImageUrl);
+      }
 
       toast({
         title: "¡Actualizado!",
@@ -249,6 +300,8 @@ const RaffleView = () => {
       setEditDialogOpen(false);
       loadData();
     } catch (error: any) {
+      // Si la imagen nueva se subió pero no se guardó el cambio, no dejarla huérfana.
+      if (uploadedImageUrl) removeRaffleImage(uploadedImageUrl);
       toast({
         title: "Error",
         description: error.message || "No se pudo actualizar el talonario",
@@ -281,6 +334,56 @@ const RaffleView = () => {
         description: error.message || "No se pudo finalizar el talonario",
         variant: "destructive",
       });
+    }
+  };
+
+  // El sorteo se hace en el servidor (función draw_raffle_winner): elige al
+  // azar entre los números vendidos o pagados y finaliza el talonario.
+  const handleDrawWinner = async () => {
+    setDrawing(true);
+    try {
+      const { data, error } = await supabase.rpc("draw_raffle_winner", { p_raffle_id: id });
+
+      if (error) throw error;
+
+      toast({
+        title: "¡Sorteo realizado!",
+        description: `Salió el número ${data.winning_number}${data.winner_display_name ? ` (${data.winner_display_name})` : ""}.`,
+      });
+
+      setDrawDialogOpen(false);
+      loadData();
+    } catch (error: any) {
+      toast({
+        title: "No se pudo realizar el sorteo",
+        description: error.message || "Probá de nuevo en unos minutos",
+        variant: "destructive",
+      });
+    } finally {
+      setDrawing(false);
+    }
+  };
+
+  const handleResolveConflict = async (orderId: string) => {
+    setResolvingConflictId(orderId);
+    try {
+      const { error } = await supabase.rpc("resolve_payment_conflict", { p_order_id: orderId });
+
+      if (error) throw error;
+
+      toast({
+        title: "Pago marcado como resuelto",
+        description: "Ya no se va a mostrar en esta lista",
+      });
+      loadData();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "No se pudo marcar el pago como resuelto",
+        variant: "destructive",
+      });
+    } finally {
+      setResolvingConflictId(null);
     }
   };
 
@@ -461,6 +564,20 @@ const RaffleView = () => {
     checkPendingPayment();
   };
 
+  const hasWinner = raffle.winning_number != null;
+  const participantsCount = numbers.filter(n => n.status === "sold" || n.status === "paid").length;
+  const reservedCount = numbers.filter(n => n.status === "reserved").length;
+  // Solo el dueño recibe los datos de contacto (filas de get_raffle_numbers_for_owner).
+  const winnerNumber = hasWinner && isOwner ? numbers.find(n => n.number === raffle.winning_number) : null;
+
+  const conflictNumbersText = (order: any) => {
+    const list = (order.number_ids || [])
+      .map((numberId: string) => numbers.find(n => n.id === numberId)?.number)
+      .filter((n: number | undefined) => n != null)
+      .sort((a: number, b: number) => a - b);
+    return list.length > 0 ? list.join(", ") : "—";
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <Navbar user={user} />
@@ -490,7 +607,14 @@ const RaffleView = () => {
         <div className="max-w-5xl mx-auto space-y-8">
           {/* Header */}
           <div className="space-y-4">
-            <div className="flex justify-between items-start gap-4">
+            {raffle.image_url && (
+              <img
+                src={raffle.image_url}
+                alt={`Premio: ${raffle.title}`}
+                className="w-full max-h-96 object-cover rounded-lg border"
+              />
+            )}
+            <div className="flex flex-col md:flex-row justify-between items-start gap-4">
               <div className="space-y-2 flex-1">
                 <div className="flex items-center gap-3">
                   <h1 className="text-3xl md:text-4xl font-bold">{raffle.title}</h1>
@@ -502,17 +626,29 @@ const RaffleView = () => {
                   )}
                 </div>
                 <p className="text-muted-foreground">{raffle.description}</p>
-                <div className="flex gap-4 text-sm">
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
                   <span className="font-semibold">
                     Precio por número: ${raffle.price_per_number}
                   </span>
+                  {raffle.draw_date && (
+                    <span className="font-semibold inline-flex items-center gap-1">
+                      <CalendarDays className="w-4 h-4" />
+                      {hasWinner ? "Fecha prevista" : "Se sortea el"}: {formatDrawDate(raffle.draw_date)}
+                    </span>
+                  )}
                   <span className="text-muted-foreground">
                     Organizado por {raffle.profiles?.full_name || "Usuario"}
                   </span>
                 </div>
               </div>
 
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2 md:justify-end">
+                {isOwner && !hasWinner && raffle.status !== "cancelled" && (
+                  <Button onClick={() => setDrawDialogOpen(true)} variant="outline" className="gap-2">
+                    <Trophy className="w-4 h-4" />
+                    Sortear ganador
+                  </Button>
+                )}
                 {isOwner && raffle.status !== "completed" && (
                   <>
                     <Button onClick={handleOpenEdit} variant="outline" className="gap-2">
@@ -544,6 +680,95 @@ const RaffleView = () => {
                 </Button>
               </div>
             </div>
+
+            {/* Ganador del sorteo */}
+            {hasWinner && (
+              <div className="rounded-lg border-2 border-yellow-400 bg-yellow-50 p-6 text-center space-y-2">
+                <div className="flex items-center justify-center gap-2 text-yellow-700">
+                  <Trophy className="w-6 h-6" />
+                  <h2 className="text-xl font-bold">¡Ya hay ganador!</h2>
+                </div>
+                <p className="text-5xl font-bold text-yellow-900">N° {raffle.winning_number}</p>
+                {raffle.winner_display_name && (
+                  <p className="text-lg font-semibold text-yellow-900">{raffle.winner_display_name}</p>
+                )}
+                <p className="text-sm text-yellow-800">Sorteado el {formatDrawnAt(raffle.drawn_at)}</p>
+
+                {isOwner && (
+                  <div className="mt-4 pt-4 border-t border-yellow-300 text-left text-sm text-yellow-900 space-y-1">
+                    <p className="font-semibold">Datos de contacto del ganador (solo los ves vos)</p>
+                    {winnerNumber?.buyer_name ? (
+                      <>
+                        <p>Nombre: {winnerNumber.buyer_name}</p>
+                        <p>Email: {winnerNumber.buyer_email || "No informado"}</p>
+                        <p>
+                          Teléfono:{" "}
+                          {winnerNumber.buyer_phone ? (
+                            <a
+                              href={`https://wa.me/${winnerNumber.buyer_phone.replace(/\D/g, "")}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="underline"
+                            >
+                              {winnerNumber.buyer_phone}
+                            </a>
+                          ) : (
+                            "No informado"
+                          )}
+                        </p>
+                      </>
+                    ) : (
+                      <p>El número ganador ya no tiene datos de comprador cargados.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Pagos en conflicto (solo dueño) */}
+            {isOwner && conflicts.length > 0 && (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>
+                  {conflicts.length === 1
+                    ? "Tenés 1 pago en conflicto"
+                    : `Tenés ${conflicts.length} pagos en conflicto`}
+                </AlertTitle>
+                <AlertDescription className="space-y-3">
+                  <p>
+                    Recibiste el dinero por Mercado Pago, pero cuando se acreditó el pago alguno de los números ya
+                    era de otra persona. Contactá al comprador y devolvele el dinero desde tu cuenta de Mercado Pago
+                    (buscá el pago por su N° de operación), o asignale otro número disponible desde "Administrar".
+                  </p>
+                  <div className="space-y-2">
+                    {conflicts.map((order) => (
+                      <div key={order.id} className="rounded-md border border-destructive/30 bg-background p-3 text-foreground space-y-1">
+                        <div className="flex flex-wrap justify-between gap-2">
+                          <span className="font-semibold">{order.buyer_name}</span>
+                          <span className="font-semibold">${Number(order.amount).toLocaleString("es-AR")}</span>
+                        </div>
+                        <p>Números pedidos: {conflictNumbersText(order)}</p>
+                        <p>Email: {order.buyer_email || "No informado"}</p>
+                        <p>Teléfono: {order.buyer_phone || "No informado"}</p>
+                        <p>N° de operación de Mercado Pago: {order.mp_payment_id || "No informado"}</p>
+                        <p className="text-xs text-muted-foreground">
+                          Pago iniciado el {formatDrawnAt(order.created_at)}
+                        </p>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="mt-2"
+                          onClick={() => handleResolveConflict(order.id)}
+                          disabled={resolvingConflictId === order.id}
+                        >
+                          {resolvingConflictId === order.id ? "Guardando..." : "Marcar como resuelto"}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </AlertDescription>
+              </Alert>
+            )}
 
             {/* Stats */}
             <div className="grid grid-cols-4 gap-4">
@@ -654,7 +879,7 @@ const RaffleView = () => {
 
       {/* Edit Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Editar Talonario</DialogTitle>
             <DialogDescription>
@@ -737,6 +962,33 @@ const RaffleView = () => {
               )}
             </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="edit-draw-date">Fecha del sorteo (opcional)</Label>
+              <Input
+                id="edit-draw-date"
+                type="date"
+                value={editData.draw_date}
+                onChange={(e) => {
+                  setEditData({ ...editData, draw_date: e.target.value });
+                  setEditErrors({ ...editErrors, draw_date: "" });
+                }}
+              />
+              {editErrors.draw_date && (
+                <p className="text-sm text-destructive mt-1">{editErrors.draw_date}</p>
+              )}
+            </div>
+
+            <RaffleImageInput
+              id="edit-image"
+              currentUrl={editData.image_url}
+              file={editImageFile}
+              onFileChange={setEditImageFile}
+              onRemoveCurrent={() => setEditData({ ...editData, image_url: "" })}
+              error={editErrors.image}
+              onError={(message) => setEditErrors({ ...editErrors, image: message })}
+              disabled={savingEdit}
+            />
+
             <div className="space-y-4 pt-4 border-t">
               <div className="space-y-2">
                 <h3 className="font-semibold text-sm">Pagos con Mercado Pago</h3>
@@ -775,13 +1027,65 @@ const RaffleView = () => {
         </DialogContent>
       </Dialog>
 
+      {/* Draw Winner Confirmation Dialog */}
+      <AlertDialog open={drawDialogOpen} onOpenChange={(open) => !drawing && setDrawDialogOpen(open)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Sortear ganador?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                {participantsCount === 0 ? (
+                  <p>
+                    Todavía no hay números vendidos ni pagados. Confirmá al menos una venta para poder sortear.
+                  </p>
+                ) : (
+                  <>
+                    <p>
+                      Se va a elegir al azar un ganador entre{" "}
+                      {participantsCount === 1
+                        ? "el único número vendido o pagado"
+                        : `los ${participantsCount} números vendidos o pagados`}
+                      . El resultado se publica en la página del talonario con el número, el nombre y la inicial del
+                      apellido del ganador.
+                    </p>
+                    {reservedCount > 0 && (
+                      <p className="font-semibold text-foreground">
+                        {reservedCount === 1
+                          ? "Hay 1 número reservado sin confirmar: no participa del sorteo."
+                          : `Hay ${reservedCount} números reservados sin confirmar: no participan del sorteo.`}{" "}
+                        Si ya te los pagaron, confirmá la venta antes de sortear.
+                      </p>
+                    )}
+                    <p className="font-semibold text-foreground">
+                      Esta acción no se puede deshacer ni repetir, y finaliza el talonario.
+                    </p>
+                  </>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={drawing}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={drawing || participantsCount === 0}
+              onClick={(e) => {
+                e.preventDefault(); // el diálogo se cierra cuando termina el sorteo
+                handleDrawWinner();
+              }}
+            >
+              {drawing ? "Sorteando..." : "Sortear ahora"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Finish Raffle Confirmation Dialog */}
       <AlertDialog open={finishDialogOpen} onOpenChange={setFinishDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>¿Finalizar talonario?</AlertDialogTitle>
             <AlertDialogDescription>
-              Esta acción marcará el talonario como finalizado. Ya no podrás editar la información del talonario ni gestionar los números. Los compradores aún podrán ver el talonario.
+              Esta acción marcará el talonario como finalizado sin sortear. Ya no podrás editar la información del talonario ni gestionar los números. Los compradores aún podrán ver el talonario. Si querés elegir un ganador, usá "Sortear ganador" (podés hacerlo también después de finalizar).
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

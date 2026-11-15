@@ -56,6 +56,14 @@ There is no route-guard component. Each protected page (`Dashboard`, `CreateRaff
 
 UI logic lives in `src/components/NumberGrid.tsx` (single and bulk flows for buyer and owner) and `src/pages/RaffleView.tsx`; server calls are wrapped in `src/lib/payments.ts`.
 
+### Draw, prize image and draw date
+
+- **Draw**: the owner's "Sortear ganador" button in `RaffleView` calls the `draw_raffle_winner(p_raffle_id)` RPC (owner only, once per raffle). It picks one number at random among `sold`/`paid` numbers, writes `raffles.winning_number`, `winner_display_name` (first name + last initial, never contact data) and `drawn_at`, and sets the raffle to `completed`. A CHECK constraint keeps a drawn raffle `completed`. "Finalizar" still completes a raffle without drawing; it can be drawn afterwards.
+- `raffles` stays fully readable by the public, so **never add sensitive columns to it**. Writes are column-level: authenticated users can INSERT/UPDATE the form fields (`title`, `description`, `price_per_number`, `whatsapp_number`, `status`, `image_url`, `draw_date`, plus `user_id`/`total_numbers` on insert) but not the winner columns. A new editable column needs a new GRANT.
+- The public page shows a winner banner; the owner also sees the winner's contact data, taken from the `get_raffle_numbers_for_owner` rows.
+- **Prize image**: `raffles.image_url` points to the public Storage bucket `raffle-images` (JPG/PNG/WebP, 5 MB). Storage policies only let a user write under `<their user id>/`. Upload, validation and date helpers are in `src/lib/raffles.ts`; the picker is `src/components/RaffleImageInput.tsx` (used by `CreateRaffle` and the edit dialog).
+- **Draw date**: `raffles.draw_date` is a `DATE` (`YYYY-MM-DD`); format it with `formatDrawDate()` rather than `new Date(string)`, which shifts a day in Argentina's timezone.
+
 ### What the public can read (column-level grants)
 
 Personal data and secrets are not readable with the anon key, so **never `select("*")` on `profiles` or `raffle_numbers`** — it fails with "permission denied":
@@ -70,7 +78,7 @@ Money goes straight to the organizer's MP account; the platform takes `marketpla
 1. **Connect** — `MercadoPagoConnect.tsx` calls `mp-oauth-start` (requires login), which stores a one-time `state` in `mp_oauth_states` and returns the MP authorization URL. `mp-oauth-callback` consumes the state, exchanges the code and upserts `mp_credentials`; a trigger mirrors it to `profiles.mp_connected`, which is what the buyer UI checks to show the pay button.
 2. **Pay** — `NumberGrid` → `startMercadoPagoPayment()` → `mp-create-payment`: reserves the numbers, inserts a `payment_orders` row (amount computed from the DB price), creates the Checkout preference with the organizer's token (`external_reference = order.id`, `notification_url = mp-webhook?order=<id>`, expiring with the reservation) and returns the `init_point`. The order id is kept in `localStorage` (`pending_payment`).
 3. **Confirm** — `mp-webhook` receives MP's notification, fetches the payment from the MP API (never trusts the request body), checks reference and amount, and calls the `apply_order_payment` SQL function, which marks the numbers `paid`. `mp-verify-payment` does the same on demand; `RaffleView.checkPendingPayment()` calls it when the buyer returns, as a fallback.
-4. Order status `conflict` means money was received but a number had already gone to someone else; the organizer must refund or reassign.
+4. Order status `conflict` means money was received but a number had already gone to someone else; the organizer must refund or reassign. `RaffleView` lists unresolved conflicts to the owner (read from `payment_orders`) and "Marcar como resuelto" calls the `resolve_payment_conflict(p_order_id)` RPC, which sets `payment_orders.resolved_at` (the status stays `conflict`).
 
 Things to know:
 - `mp-oauth-callback` and `mp-webhook` must be deployed with JWT verification off (`supabase/config.toml`).
@@ -83,6 +91,8 @@ Things to know:
 There is no migration tooling wired up; SQL is run by hand in the Supabase SQL Editor. Order for a fresh project: `supabase/schema.sql`, then `supabase/migrations/*.sql` in filename order (each file in its own run — the first adds the `paid` enum value, which Postgres won't let you use in the same transaction). The older loose files (`mercadopago_integration.sql`, `add_mp_oauth_fields.sql`, `add_paid_status.sql`, `public_reservations_policy.sql`) are superseded by the migrations; `FIX_*.sql` are one-off repair scripts.
 
 `src/integrations/supabase/types.ts` was last updated by hand to match the migrations (not regenerated); regenerate it after schema changes.
+
+The migrations were checked against an in-memory Postgres (PGlite), which has no `storage` schema: the Storage block of `20261116000001_product_draw.sql` is skipped there and only takes effect on a real Supabase project.
 
 ### Share image
 
