@@ -1,6 +1,23 @@
 {
   "rewrites": [
     {
+      "source": "/raffle/:id",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(facebookexternalhit|Facebot|WhatsApp|Twitterbot|Slackbot|TelegramBot|LinkedInBot|Discordbot|Pinterestbot|SkypeUriPreview|redditbot|vkShare).*"
+        }
+      ],
+      "missing": [
+        {
+          "type": "query",
+          "key": "_spa"
+        }
+      ],
+      "destination": "/api/raffle-preview?id=:id"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

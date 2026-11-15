@@ -10,8 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { MessageCircle, Check, X, CheckSquare, Square, CreditCard } from "lucide-react";
 import { reserveNumbers, startMercadoPagoPayment } from "@/lib/payments";
 
-const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-const isValidPhone = (phone: string) => /^\+?[\d\s\-().]{7,20}$/.test(phone);
+import { isValidEmail, isValidPhone } from "@/lib/validation";
 
 interface NumberGridProps {
   numbers: any[];
@@ -466,7 +465,8 @@ export const NumberGrid = ({ numbers, raffle, isOwner, onNumberUpdated }: Number
               key={number.id}
               onClick={() => handleNumberClick(number)}
               disabled={(number.status === "sold" && !isOwner) || (raffle.status === "completed" && !isOwner) || (multiSelectMode && number.status !== "available")}
-              className={`aspect-square rounded-lg border-2 font-semibold text-sm flex items-center justify-center transition-all ${getNumberStyle(number.status, isOwner, raffle.status === "completed", isSelected)}`}
+              className={`aspect-square rounded-lg border-2 font-semibold text-sm flex items-center justify-center transition-all ${getNumberStyle(number.status, isOwner, raffle.status === "completed", isSelected)}${raffle.winning_number === number.number ? " ring-4 ring-yellow-400 ring-offset-2" : ""}`}
+              title={raffle.winning_number === number.number ? "Número ganador" : undefined}
             >
               {number.number}
             </button>
