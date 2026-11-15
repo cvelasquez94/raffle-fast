@@ -4,189 +4,97 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a raffle management application built with React, TypeScript, Vite, and Supabase. The application allows users to create raffles, manage raffle numbers, track purchases, and administer raffle events. This project uses shadcn/ui for UI components.
+Raffle ("talonario") management SPA: React 18 + TypeScript + Vite (SWC) + Tailwind/shadcn-ui, with Supabase (Postgres, Auth, one Edge Function) as the only backend. Owners create raffles and share a public link; anonymous visitors reserve numbers via WhatsApp or pay through Mercado Pago. All user-facing copy is in Spanish (Argentina); prices are in ARS.
 
-## Development Commands
+## Commands
 
 ```bash
-# Install dependencies
-npm i
-
-# Start development server (runs on port 8080)
-npm run dev
-
-# Build for production
-npm run build
-
-# Build for development environment
-npm run build:dev
-
-# Lint code
-npm run lint
-
-# Preview production build
-npm preview
+npm i              # install
+npm run dev        # dev server on http://localhost:8080 (not 5173)
+npm run build      # production build
+npm run build:dev  # build in development mode
+npm run lint       # eslint
+npm run preview    # serve the production build
 ```
 
-## Tech Stack
-
-- **Frontend Framework**: React 18 with TypeScript
-- **Build Tool**: Vite with SWC plugin for fast compilation
-- **Styling**: Tailwind CSS with shadcn/ui components
-- **Backend/Database**: Supabase (authentication, database, real-time subscriptions)
-- **State Management**: TanStack Query (React Query) for server state
-- **Form Handling**: React Hook Form with Zod validation
-- **Routing**: React Router v6
-- **UI Components**: Radix UI primitives via shadcn/ui
-
-## Architecture
-
-### Application Structure
-
-```
-src/
-├── components/         # Reusable components
-│   ├── ui/            # shadcn/ui components (auto-generated)
-│   ├── Navbar.tsx     # Main navigation component
-│   ├── NumberGrid.tsx # Grid for displaying/selecting raffle numbers
-│   ├── RaffleAdmin.tsx # Admin panel for managing raffle numbers
-│   └── RaffleCard.tsx # Card component for displaying raffle info
-├── pages/             # Route components (page-level)
-│   ├── Index.tsx      # Landing page
-│   ├── Auth.tsx       # Authentication page
-│   ├── Dashboard.tsx  # User dashboard
-│   ├── CreateRaffle.tsx # Raffle creation form
-│   ├── RaffleView.tsx # Individual raffle view/management
-│   └── NotFound.tsx   # 404 page
-├── hooks/             # Custom React hooks
-├── integrations/
-│   └── supabase/      # Supabase client and generated types
-├── lib/               # Utility functions
-└── App.tsx            # Root component with providers and routing
-```
-
-### Key Architectural Patterns
-
-**Database Schema** (Supabase):
-- `profiles` - User profile information (linked to auth.users)
-- `raffles` - Raffle events (title, description, price, whatsapp contact)
-- `raffle_numbers` - Individual raffle numbers with status tracking (available, reserved, sold)
-
-**Number Status Flow**: available → reserved (with reserved_until timestamp) → sold
-
-**Authentication Flow**:
-- Supabase Auth handles authentication
-- Session is persisted in localStorage
-- Protected routes check session and redirect to `/auth` if not authenticated
-- User profiles are created/linked with auth users
-
-**State Management**:
-- TanStack Query for server state caching and synchronization
-- Local component state for UI interactions
-- Supabase real-time subscriptions for live updates (in RaffleView)
-
-### Path Aliases
-
-The project uses TypeScript path aliases configured in `vite.config.ts` and `tsconfig.json`:
-- `@/` → `src/` (e.g., `@/components/ui/button`)
-
-### Routing
-
-Routes are defined in [src/App.tsx](src/App.tsx):
-- `/` - Landing page
-- `/auth` - Authentication
-- `/dashboard` - User's raffles dashboard
-- `/create-raffle` - Create new raffle
-- `/raffle/:id` - View/manage specific raffle
-- Custom routes must be added ABOVE the catch-all `*` route
+There is no test runner and no `typecheck` script. `vite build` does not type-check; use `npx tsc --noEmit -p tsconfig.app.json` if you need one. TypeScript is non-strict (`strict: false`, `strictNullChecks: false`, `noImplicitAny: false`), and the code uses `any` freely for Supabase rows.
 
 ## Environment Variables
 
-Required Supabase environment variables (set via Vite's `VITE_` prefix):
-- `VITE_SUPABASE_URL` - Supabase project URL
-- `VITE_SUPABASE_PUBLISHABLE_KEY` - Supabase anon/public key
+Frontend (`.env` / `.env.local`, see `.env.example`): `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`. No Mercado Pago values live in the frontend.
 
-These are accessed via `import.meta.env` in [src/integrations/supabase/client.ts](src/integrations/supabase/client.ts).
+Edge Function secrets (set in Supabase, not in Vite):
+- `MP_CLIENT_ID`, `MP_CLIENT_SECRET` — Mercado Pago marketplace app
+- `MP_REDIRECT_URI` — URL of the `mp-oauth-callback` function (must match the MP app config)
+- `APP_URL` — public frontend URL, used for redirects and MP `back_urls`
+- `MP_MARKETPLACE_FEE_PERCENT` — platform commission on online payments (default `5`)
 
-## UI Component System
+## Architecture
 
-This project uses shadcn/ui, which means:
-- UI components are in `src/components/ui/` and are directly part of the codebase (not npm packages)
-- Components use Radix UI primitives with Tailwind CSS styling
-- The `cn()` utility from `src/lib/utils.ts` is used for conditional class merging
-- Component configuration is in `components.json`
-- To add new shadcn components, use: `npx shadcn@latest add [component-name]`
+### Data access: direct Supabase calls, no query layer
 
-## Supabase Integration
+Pages and components call the `supabase` client (`@/integrations/supabase/client`) directly inside `useEffect` / event handlers and keep results in `useState`. After a mutation, children call an `onNumberUpdated` callback that makes `RaffleView` re-run `loadData()`.
 
-**Setup**: Complete database schema and setup instructions are in `supabase/` folder:
-- `supabase/schema.sql` - Complete database schema with tables, policies, triggers
-- `supabase/seed_data.sql` - Optional test data
-- `supabase/verification.sql` - Verification script to test setup
-- `supabase/README.md` - Detailed setup guide
+Although they are installed (and `QueryClientProvider` is mounted in `App.tsx`), the codebase currently does **not** use TanStack Query hooks, React Hook Form, Zod, or Supabase real-time subscriptions. Forms are controlled inputs with hand-written `validateForm()` functions and regex helpers (`isValidEmail`, `isValidPhone`, `isValidWhatsApp`) duplicated per file. Follow the existing style unless asked to migrate.
 
-**Client**: Singleton Supabase client is exported from `@/integrations/supabase/client`
+Feedback uses `useToast` from `@/hooks/use-toast` (`toast({ title, description, variant })`), not `sonner`.
 
-**Types**: Auto-generated database types are in `@/integrations/supabase/types` - these should be regenerated when database schema changes
+### Auth
 
-**Auth**: Configured with localStorage persistence and auto token refresh
+There is no route-guard component. Each protected page (`Dashboard`, `CreateRaffle`) calls `supabase.auth.getSession()` on mount and `navigate("/auth")` itself. `/raffle/:id` is public; `RaffleView` computes `isOwner` (`session.user.id === raffle.user_id`) and passes it down to switch between the buyer UI and the owner UI (`RaffleAdmin`, edit/finish, share image). Auth supports email/password and Google OAuth (redirects to `/dashboard`). A `handle_new_user` DB trigger creates the `profiles` row.
 
-**Public Reservations**: The application allows unauthenticated users to reserve raffle numbers through Row Level Security (RLS) policies that permit public UPDATE operations on `raffle_numbers` when changing status from `available` to `reserved`.
+### Raffle numbers lifecycle
 
-**Usage Pattern**:
-```typescript
-import { supabase } from "@/integrations/supabase/client";
+`available → reserved → (paid) → sold`
 
-// Query data
-const { data, error } = await supabase
-  .from('raffles')
-  .select('*')
-  .eq('user_id', userId);
+- Inserting a `raffles` row fires the `create_raffle_numbers` trigger, which generates rows `1..total_numbers` in `raffle_numbers` (the count is chosen in the create form; it is not fixed at 50).
+- **Reserve**: the public has no UPDATE access to `raffle_numbers`. Anonymous visitors call the `reserve_numbers` RPC, which reserves all requested numbers or none for 24h, caps a request at 20 numbers and an IP at 40 numbers/hour (`reservation_log`).
+- **paid**: set server-side when Mercado Pago confirms a payment; the owner still confirms it to `sold`.
+- Owners update numbers directly (RLS policy "Owners can update their raffle numbers").
+- Expired reservations are released by `clean_expired_reservations()` on a pg_cron schedule (every 10 min), and lazily inside `reserve_numbers`.
+- A CHECK constraint ties status to required columns (`reserved` needs `buyer_name`, `reserved_at`, `reserved_until`; `paid`/`sold` need `buyer_name`; `available` needs it NULL), so updates must set/clear those fields together.
 
-// Real-time subscriptions
-supabase
-  .channel('raffle-changes')
-  .on('postgres_changes', { event: '*', schema: 'public', table: 'raffle_numbers' }, handler)
-  .subscribe();
-```
+UI logic lives in `src/components/NumberGrid.tsx` (single and bulk flows for buyer and owner) and `src/pages/RaffleView.tsx`; server calls are wrapped in `src/lib/payments.ts`.
 
-**Database Schema**:
-- Tables automatically create profiles via `on_auth_user_created` trigger
-- Raffle numbers (1-50) are auto-generated when a raffle is created
-- Expired reservations can be cleaned with `SELECT clean_expired_reservations();`
+### What the public can read (column-level grants)
 
-## Development Workflow
+Personal data and secrets are not readable with the anon key, so **never `select("*")` on `profiles` or `raffle_numbers`** — it fails with "permission denied":
+- `profiles`: only `id, created_at, full_name, mp_connected`.
+- `raffle_numbers`: only `id, created_at, raffle_id, number, status, reserved_at, reserved_until, sold_at`. Owners get full rows (buyer name/email/phone, payment fields) through the `get_raffle_numbers_for_owner(p_raffle_id)` RPC, which `RaffleView.loadData()` uses when `isOwner`.
+- `mp_credentials`, `mp_oauth_states`, `reservation_log`: service role only. `payment_orders`: owner SELECT only.
 
-When adding new features:
-1. Create/modify page components in `src/pages/` for route-level views
-2. Create reusable components in `src/components/`
-3. Use shadcn/ui components from `src/components/ui/` as building blocks
-4. For forms, use React Hook Form with Zod schemas
-5. Use TanStack Query hooks for data fetching/mutations
-6. Add route to `src/App.tsx` if creating new pages
-7. Supabase types may need regeneration if schema changes
+### Mercado Pago flow (marketplace model, all server-side)
+
+Money goes straight to the organizer's MP account; the platform takes `marketplace_fee` on each preference. Edge Functions live in `supabase/functions/` with shared code in `_shared/mp.ts`:
+
+1. **Connect** — `MercadoPagoConnect.tsx` calls `mp-oauth-start` (requires login), which stores a one-time `state` in `mp_oauth_states` and returns the MP authorization URL. `mp-oauth-callback` consumes the state, exchanges the code and upserts `mp_credentials`; a trigger mirrors it to `profiles.mp_connected`, which is what the buyer UI checks to show the pay button.
+2. **Pay** — `NumberGrid` → `startMercadoPagoPayment()` → `mp-create-payment`: reserves the numbers, inserts a `payment_orders` row (amount computed from the DB price), creates the Checkout preference with the organizer's token (`external_reference = order.id`, `notification_url = mp-webhook?order=<id>`, expiring with the reservation) and returns the `init_point`. The order id is kept in `localStorage` (`pending_payment`).
+3. **Confirm** — `mp-webhook` receives MP's notification, fetches the payment from the MP API (never trusts the request body), checks reference and amount, and calls the `apply_order_payment` SQL function, which marks the numbers `paid`. `mp-verify-payment` does the same on demand; `RaffleView.checkPendingPayment()` calls it when the buyer returns, as a fallback.
+4. Order status `conflict` means money was received but a number had already gone to someone else; the organizer must refund or reassign.
+
+Things to know:
+- `mp-oauth-callback` and `mp-webhook` must be deployed with JWT verification off (`supabase/config.toml`).
+- Access tokens are refreshed automatically by `getSellerAccessToken()` when within 7 days of expiry.
+- `back_urls` / `auto_return` are only sent when `APP_URL` is https, so the return redirect can't be tested against localhost (`vite.config.ts` allows `.ngrok-free.app` hosts).
+- The root-level `MERCADOPAGO_*.md`, `MP_OAUTH_IMPLEMENTATION.md`, `PAYMENT_FLOW.md` and `TESTING_PAYMENTS.md` describe the previous client-side flow and are out of date.
+
+### Database schema and migrations
+
+There is no migration tooling wired up; SQL is run by hand in the Supabase SQL Editor. Order for a fresh project: `supabase/schema.sql`, then `supabase/migrations/*.sql` in filename order (each file in its own run — the first adds the `paid` enum value, which Postgres won't let you use in the same transaction). The older loose files (`mercadopago_integration.sql`, `add_mp_oauth_fields.sql`, `add_paid_status.sql`, `public_reservations_policy.sql`) are superseded by the migrations; `FIX_*.sql` are one-off repair scripts.
+
+`src/integrations/supabase/types.ts` was last updated by hand to match the migrations (not regenerated); regenerate it after schema changes.
+
+### Share image
+
+`RaffleView.handleGenerateShareImage` draws the number grid to a `<canvas>` by hand (no library) and shares it via the Web Share API with a download fallback.
+
+## Conventions
+
+- `@/` aliases `src/`.
+- `src/components/ui/` is shadcn/ui generated code; add components with `npx shadcn@latest add <name>` rather than hand-writing them.
+- New routes go in `src/App.tsx` **above** the catch-all `*` route.
+- `src/integrations/supabase/client.ts` is marked auto-generated — don't edit it.
 
 ## Deployment
 
-**Vercel Configuration**: See [DEPLOYMENT.md](DEPLOYMENT.md) for complete deployment guide.
-
-**Key files**:
-- `vercel.json` - Configures SPA routing (fixes 404 on direct route access)
-- `public/_redirects` - Alternative config for Netlify/other hosts
-
-**Environment Variables** (must be set in Vercel):
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_PUBLISHABLE_KEY`
-- `VITE_SUPABASE_PROJECT_ID`
-
-**Common Issues**:
-- 404 on direct routes → Ensure `vercel.json` is deployed
-- Supabase errors → Verify environment variables in Vercel
-- Build failures → Run `npm run build` locally first
-
-## Important Notes
-
-- Development server runs on port 8080 (not default 5173)
-- All custom routes must be added ABOVE the catch-all `*` route in App.tsx
-- Supabase client file is auto-generated - do not manually edit the header comment
-- `.env` is gitignored - never commit sensitive credentials
+Vercel; `vercel.json` rewrites all paths to `index.html` for SPA routing (`public/_redirects` does the same for Netlify-style hosts). See `DEPLOYMENT.md`. Topic-specific guides live at the repo root (`PAYMENT_FLOW.md`, `MERCADOPAGO_OAUTH_SETUP.md`, `TESTING_PAYMENTS.md`, `PAID_STATUS_GUIDE.md`).
